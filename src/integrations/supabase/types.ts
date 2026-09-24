@@ -1061,29 +1061,6 @@ export type Database = {
     }
     Functions: {
       can_access_profile: { Args: { _id: string }; Returns: boolean }
-      ensure_my_profile: {
-        Args: { _name: string }
-        Returns: {
-          avatar_url: string | null
-          created_at: string
-          full_name: string
-          hired_at: string | null
-          id: string
-          job_title: string | null
-          manager_id: string | null
-          phone: string | null
-          preferences: Json
-          status: Database["public"]["Enums"]["record_status"]
-          team_id: string | null
-          updated_at: string
-        }
-        SetofOptions: {
-          from: "*"
-          to: "profiles"
-          isOneToOne: true
-          isSetofReturn: false
-        }
-      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
