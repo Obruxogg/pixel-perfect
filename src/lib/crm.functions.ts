@@ -116,3 +116,54 @@ export const moveStudent = createServerFn({ method: "POST" })
     await context.supabase.from("student_interactions").insert({ student_id: data.studentId, user_id: context.userId, kind: "stage_changed", metadata: { from: before.data?.crm_stage_id, to: data.stageId } });
     return result.data;
   });
+
+export const updateProposalTimer = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input) => z.object({ proposalId: z.string().uuid(), action: z.enum(["pause", "resume", "extend30", "extend60", "complete", "cancel"]) }).parse(input))
+  .handler(async ({ data, context }) => {
+    const current = await context.supabase.from("proposals").select("*").eq("id", data.proposalId).single();
+    if (current.error || !current.data) throw new Error("Proposta não encontrada.");
+    const now = Date.now();
+    let status = current.data.timer_status;
+    let validUntil = current.data.valid_until;
+    let remaining = current.data.timer_remaining_seconds;
+    if (data.action === "pause") {
+      status = "paused";
+      remaining = Math.max(0, Math.floor((new Date(validUntil ?? now).getTime() - now) / 1000));
+    } else if (data.action === "resume") {
+      status = "active";
+      validUntil = new Date(now + Number(remaining ?? 0) * 1000).toISOString();
+      remaining = null;
+    } else if (data.action === "extend30" || data.action === "extend60") {
+      const minutes = data.action === "extend30" ? 30 : 60;
+      if (status === "paused") remaining = Number(remaining ?? 0) + minutes * 60;
+      else validUntil = new Date(Math.max(now, new Date(validUntil ?? now).getTime()) + minutes * 60000).toISOString();
+    } else status = data.action === "complete" ? "completed" : "cancelled";
+    const updated = await context.supabase.from("proposals").update({ timer_status: status, valid_until: validUntil, timer_remaining_seconds: remaining }).eq("id", data.proposalId).select().single();
+    if (updated.error) throw new Error("Não foi possível alterar o timer.");
+    await context.supabase.from("proposal_timer_events").insert({ proposal_id: data.proposalId, user_id: context.userId, action: data.action, previous_status: current.data.timer_status, new_status: status, previous_valid_until: current.data.valid_until, new_valid_until: validUntil });
+    return updated.data;
+  });
+
+export const saveCatalogItem = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input) => z.object({ type: z.enum(["area", "course", "stage"]), name: z.string().min(2).max(120), areaId: z.string().uuid().optional(), workload: z.number().int().positive().optional(), modality: z.string().max(60).optional(), basePrice: z.number().nonnegative().optional() }).parse(input))
+  .handler(async ({ data, context }) => {
+    const { data: isAdmin } = await context.supabase.rpc("has_role", { _user_id: context.userId, _role: "admin" });
+    if (!isAdmin) throw new Error("Somente administradores podem alterar configurações.");
+    if (data.type === "area") {
+      const result = await context.supabase.from("areas").insert({ name: data.name }).select().single();
+      if (result.error) throw new Error(result.error.message);
+      return { id: result.data.id };
+    }
+    if (data.type === "stage") {
+      const { count } = await context.supabase.from("crm_stages").select("id", { count: "exact", head: true });
+      const result = await context.supabase.from("crm_stages").insert({ name: data.name, sort_order: Number(count ?? 0) + 1 }).select().single();
+      if (result.error) throw new Error(result.error.message);
+      return { id: result.data.id };
+    }
+    if (!data.areaId || !data.workload || !data.modality || data.basePrice == null) throw new Error("Preencha todos os dados do curso.");
+    const result = await context.supabase.from("courses").insert({ name: data.name, area_id: data.areaId, workload_hours: data.workload, modality: data.modality, base_price: data.basePrice }).select().single();
+    if (result.error) throw new Error(result.error.message);
+    return { id: result.data.id };
+  });
