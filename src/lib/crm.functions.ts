@@ -9,7 +9,8 @@ export const bootstrapProfile = createServerFn({ method: "POST" })
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { data: existing } = await supabaseAdmin.from("profiles").select("id").eq("id", context.userId).maybeSingle();
     if (!existing) {
-      const name = data.fullName?.trim() || String(context.claims.user_metadata?.full_name ?? context.claims.email ?? "Novo usuário");
+      const metadata = context.claims["user_metadata"] as Record<string, unknown> | undefined;
+      const name = data.fullName?.trim() || String(metadata?.["full_name"] ?? context.claims["email"] ?? "Novo usuário");
       const { error } = await supabaseAdmin.from("profiles").insert({ id: context.userId, full_name: name });
       if (error) throw new Error("Não foi possível criar o perfil.");
     }
@@ -90,7 +91,7 @@ export const createProposal = createServerFn({ method: "POST" })
     let { data: student } = await db.from("students").select("*").eq("whatsapp", whatsapp).maybeSingle();
     if (!student) {
       const firstStage = await db.from("crm_stages").select("id").eq("status", "active").order("sort_order").limit(1).single();
-      const inserted = await db.from("students").insert({ full_name: data.studentName, whatsapp, email: data.email || null, owner_id: context.userId, crm_stage_id: firstStage.data?.id }).select().single();
+      const inserted = await db.from("students").insert({ full_name: data.studentName, whatsapp, email: data.email || null, owner_id: context.userId, crm_stage_id: firstStage.data?.id ?? null }).select().single();
       if (inserted.error) throw new Error("Não foi possível cadastrar o contato.");
       student = inserted.data;
       await db.from("student_assignments").insert({ student_id: student.id, seller_id: context.userId, assigned_by: context.userId, reason: "Criação pela simulação" });
