@@ -17,6 +17,7 @@ import {
   Tag,
   ToggleLeft,
   ToggleRight,
+  Handshake,
 } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
@@ -46,7 +47,15 @@ function SettingsPage() {
   const navigate = useNavigate();
 
   // Active Tab
-  const [activeTab, setActiveTab] = useState<"team" | "triggers" | "courses" | "discounts" | "crm">("team");
+  const [activeTab, setActiveTab] = useState<"team" | "conditions" | "triggers" | "courses" | "discounts" | "crm">("team");
+
+  // Condition Form
+  const [condCourseId, setCondCourseId] = useState("");
+  const [condName, setCondName] = useState("");
+  const [condPaymentMethodId, setCondPaymentMethodId] = useState("");
+  const [condInstallmentId, setCondInstallmentId] = useState("");
+  const [condDiscountRuleId, setCondDiscountRuleId] = useState("");
+  const [condValidityMinutes, setCondValidityMinutes] = useState("60");
 
   // Feedback State
   const [busy, setBusy] = useState(false);
@@ -191,6 +200,38 @@ function SettingsPage() {
     }
   }
 
+  async function handleSaveCondition(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError("");
+    setMessage("");
+    try {
+      await save({
+        data: {
+          type: "condition",
+          name: condName,
+          courseId: condCourseId,
+          paymentMethodId: condPaymentMethodId,
+          installmentId: condInstallmentId || undefined,
+          discountRuleId: condDiscountRuleId || undefined,
+          validityMinutes: condValidityMinutes ? Number(condValidityMinutes) : 60,
+        } as any,
+      });
+      await refresh();
+      setMessage("Condição comercial cadastrada com sucesso!");
+      setCondName("");
+      setCondCourseId("");
+      setCondPaymentMethodId("");
+      setCondInstallmentId("");
+      setCondDiscountRuleId("");
+      setCondValidityMinutes("60");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erro ao salvar condição comercial.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function handleSaveCatalog(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
@@ -310,12 +351,21 @@ function SettingsPage() {
         </Button>
 
         <Button
+          variant={activeTab === "conditions" ? "default" : "ghost"}
+          size="sm"
+          className="gap-2 font-semibold"
+          onClick={() => setActiveTab("conditions")}
+        >
+          <Handshake size={16} /> Condições Comerciais
+        </Button>
+
+        <Button
           variant={activeTab === "triggers" ? "default" : "ghost"}
           size="sm"
           className="gap-2 font-semibold"
           onClick={() => setActiveTab("triggers")}
         >
-          <Sparkles size={16} /> Gatilhos Comerciais (V2)
+          <Sparkles size={16} /> Gatilhos Comerciais
         </Button>
 
         <Button
@@ -359,9 +409,188 @@ function SettingsPage() {
       )}
 
       {/* ========================================================= */}
+      {/* TAB CONDIÇÕES COMERCIAIS */}
+      {/* ========================================================= */}
+      {activeTab === "conditions" && (
+        <section className="space-y-6">
+          <div>
+            <h2 className="text-lg font-bold">Condições Comerciais</h2>
+            <p className="text-xs text-muted-foreground mt-1">
+              Cadastre as condições que o vendedor poderá selecionar ao criar uma proposta.
+              Cada condição define o curso, forma de pagamento, parcelamento, desconto e validade da oferta.
+            </p>
+          </div>
+
+          {/* Form: Nova Condição */}
+          <div className="data-panel p-5">
+            <h3 className="text-sm font-bold mb-4 flex items-center gap-2">
+              <Plus size={15} className="text-primary" /> Nova Condição Comercial
+            </h3>
+            <form onSubmit={handleSaveCondition} className="space-y-4">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="text-sm font-medium">
+                  Nome da Condição *
+                  <input
+                    className="input-field mt-1.5"
+                    value={condName}
+                    onChange={(e) => setCondName(e.target.value)}
+                    placeholder="Ex: PIX à vista com 20% de desconto"
+                    required
+                  />
+                </label>
+                <label className="text-sm font-medium">
+                  Curso *
+                  <select
+                    className="input-field mt-1.5"
+                    value={condCourseId}
+                    onChange={(e) => { setCondCourseId(e.target.value); setCondInstallmentId(""); }}
+                    required
+                  >
+                    <option value="">Selecione o curso</option>
+                    {(data.areas ?? []).map((area) => (
+                      <optgroup key={area.id} label={area.name}>
+                        {(data.courses ?? [])
+                          .filter((c) => c.area_id === area.id)
+                          .map((c) => (
+                            <option key={c.id} value={c.id}>{c.name} — {brl.format(Number(c.base_price))}</option>
+                          ))}
+                      </optgroup>
+                    ))}
+                  </select>
+                </label>
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-3">
+                <label className="text-sm font-medium">
+                  Forma de Pagamento *
+                  <select
+                    className="input-field mt-1.5"
+                    value={condPaymentMethodId}
+                    onChange={(e) => { setCondPaymentMethodId(e.target.value); setCondInstallmentId(""); }}
+                    required
+                  >
+                    <option value="">Selecione</option>
+                    {(data.methods ?? []).map((m) => (
+                      <option key={m.id} value={m.id}>{m.name}</option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="text-sm font-medium">
+                  Parcelamento
+                  <select
+                    className="input-field mt-1.5"
+                    value={condInstallmentId}
+                    onChange={(e) => setCondInstallmentId(e.target.value)}
+                    disabled={!condPaymentMethodId}
+                  >
+                    <option value="">Selecione as parcelas</option>
+                    {(data.installments ?? [])
+                      .filter((i) => i.payment_method_id === condPaymentMethodId)
+                      .map((i) => (
+                        <option key={i.id} value={i.id}>{i.label} ({i.installments}x)</option>
+                      ))}
+                  </select>
+                </label>
+
+                <label className="text-sm font-medium">
+                  Regra de Desconto
+                  <select
+                    className="input-field mt-1.5"
+                    value={condDiscountRuleId}
+                    onChange={(e) => setCondDiscountRuleId(e.target.value)}
+                  >
+                    <option value="">Sem desconto</option>
+                    {(data.discounts ?? []).map((d) => (
+                      <option key={d.id} value={d.id}>
+                        {d.name} ({d.kind === "percentage" ? `${d.value}%` : brl.format(Number(d.value))})
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="text-sm font-medium">
+                  Validade da Oferta (minutos) *
+                  <input
+                    type="number"
+                    min="15"
+                    step="15"
+                    className="input-field mt-1.5"
+                    value={condValidityMinutes}
+                    onChange={(e) => setCondValidityMinutes(e.target.value)}
+                    required
+                  />
+                  <span className="text-xs text-muted-foreground">Ex: 60 = 1 hora de validade após apresentar ao aluno</span>
+                </label>
+              </div>
+
+              <div className="flex justify-end">
+                <Button type="submit" disabled={busy} className="gap-2 font-bold">
+                  <Plus size={16} /> Cadastrar Condição Comercial
+                </Button>
+              </div>
+            </form>
+          </div>
+
+          {/* List of existing conditions */}
+          <div className="data-panel overflow-x-auto">
+            <table>
+              <thead>
+                <tr>
+                  <th>Nome da Condição</th>
+                  <th>Curso</th>
+                  <th>Pagamento</th>
+                  <th>Parcelamento</th>
+                  <th>Desconto</th>
+                  <th>Validade</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(data.conditions as any[]).length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="text-center text-muted-foreground py-6 text-sm">
+                      Nenhuma condição cadastrada. Crie a primeira condição acima.
+                    </td>
+                  </tr>
+                ) : (
+                  (data.conditions as any[]).map((cond: any) => {
+                    const course = data.courses.find((c) => c.id === cond.course_id);
+                    const method = data.methods.find((m) => m.id === cond.payment_method_id);
+                    const inst = data.installments.find((i) => i.id === cond.installment_option_id);
+                    const disc = data.discounts.find((d) => d.id === cond.discount_rule_id);
+                    return (
+                      <tr key={cond.id}>
+                        <td className="font-semibold text-sm">{cond.name}</td>
+                        <td className="text-xs text-muted-foreground">{course?.name ?? "—"}</td>
+                        <td className="text-xs text-muted-foreground">{method?.name ?? "—"}</td>
+                        <td className="text-xs text-muted-foreground">{inst ? `${inst.label} (${inst.installments}x)` : "—"}</td>
+                        <td className="text-xs text-emerald-600 font-semibold">
+                          {disc ? `${disc.name} (${disc.kind === "percentage" ? `${disc.value}%` : brl.format(Number(disc.value))})` : "—"}
+                        </td>
+                        <td className="text-xs font-semibold text-amber-600">{cond.validity_minutes} min</td>
+                        <td>
+                          <span className={`status-pill ${cond.status === "active" ? "bg-emerald-100 text-emerald-800" : "bg-muted text-muted-foreground"}`}>
+                            {cond.status === "active" ? "Ativa" : "Inativa"}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
+      {/* ========================================================= */}
       {/* TAB 1: VENDEDORES & EQUIPE (Requirement 4 & 5) */}
       {/* ========================================================= */}
       {activeTab === "team" && (
+
         <section className="space-y-6">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>

@@ -849,9 +849,14 @@ export const saveCatalogItem = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: unknown) =>
     z.object({
-      type: z.enum(["area", "course", "stage", "trigger", "discount"]),
+      type: z.enum(["area", "course", "stage", "trigger", "discount", "condition"]),
       name: z.string().min(2).max(120),
       areaId: z.string().uuid().optional(),
+      courseId: z.string().uuid().optional(),
+      paymentMethodId: z.string().uuid().optional(),
+      installmentId: z.string().uuid().optional(),
+      discountRuleId: z.string().uuid().optional(),
+      validityMinutes: z.number().int().positive().optional(),
       workload: z.number().int().positive().optional(),
       modality: z.string().max(60).optional(),
       basePrice: z.number().nonnegative().optional(),
@@ -867,6 +872,60 @@ export const saveCatalogItem = createServerFn({ method: "POST" })
     const { data: isManager } = await context.supabase.rpc("has_role", { _user_id: context.userId, _role: "manager" });
 
     if (!isAdmin && !isManager) throw new Error("Somente administradores e gerentes podem alterar configurações.");
+
+    if (data.type === "condition") {
+      if (!data.courseId || !data.paymentMethodId || !data.installmentId) {
+        throw new Error("Curso, forma de pagamento e parcelamento são obrigatórios para a condição comercial.");
+      }
+
+      const { data: existingPrice } = await context.supabase
+        .from("course_prices")
+        .select("id")
+        .eq("course_id", data.courseId)
+        .eq("payment_method_id", data.paymentMethodId)
+        .eq("installment_option_id", data.installmentId)
+        .maybeSingle();
+
+      let priceId = existingPrice?.id;
+      if (!priceId) {
+        const { data: courseRow } = await context.supabase
+          .from("courses")
+          .select("base_price")
+          .eq("id", data.courseId)
+          .single();
+        const insertedPrice = await context.supabase
+          .from("course_prices")
+          .insert({
+            course_id: data.courseId,
+            payment_method_id: data.paymentMethodId,
+            installment_option_id: data.installmentId,
+            price: courseRow?.base_price ?? 0,
+            label: "Tabela cadastrada",
+          })
+          .select("id")
+          .single();
+        if (insertedPrice.error) throw new Error(insertedPrice.error.message);
+        priceId = insertedPrice.data.id;
+      }
+
+      const result = await context.supabase
+        .from("commercial_conditions")
+        .insert({
+          name: data.name,
+          course_id: data.courseId,
+          course_price_id: priceId,
+          payment_method_id: data.paymentMethodId,
+          installment_option_id: data.installmentId,
+          discount_rule_id: data.discountRuleId || null,
+          validity_minutes: data.validityMinutes || 60,
+          allowed_roles: ["seller", "manager", "admin"],
+        })
+        .select()
+        .single();
+
+      if (result.error) throw new Error(result.error.message);
+      return { id: result.data.id };
+    }
 
     if (data.type === "area") {
       const result = await context.supabase.from("areas").insert({ name: data.name }).select().single();
