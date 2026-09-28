@@ -169,3 +169,12 @@
 @utility stage-dot { width: .5rem; height: .5rem; border-radius: 999px; background: var(--color-primary); }
 @utility contact-card { border: 1px solid var(--color-border); border-radius: var(--radius); background: var(--color-card); padding: 1rem; box-shadow: 0 1px 2px color-mix(in oklch, var(--color-foreground) 6%, transparent); }
 @utility proposal-card { display: grid; gap: 1.25rem; border: 1px solid var(--color-border); border-radius: var(--radius); background: var(--color-card); padding: 1.25rem; @media (min-width: 768px) { grid-template-columns: 1fr auto; align-items: center; } }
+@utility price-strike { text-decoration: line-through; color: var(--color-muted-foreground); font-size: 1.15rem; font-weight: 600; }
+@utility price-highlight { font-size: 2.5rem; font-weight: 800; color: var(--color-primary); letter-spacing: -0.02em; line-height: 1.1; }
+@utility economy-callout { display: inline-flex; align-items: center; gap: 0.5rem; border-radius: var(--radius); background: color-mix(in oklch, var(--color-primary) 12%, transparent); border: 1px solid color-mix(in oklch, var(--color-primary) 25%, transparent); padding: 0.5rem 0.75rem; color: var(--color-primary); font-weight: 700; }
+@utility trigger-pill { display: inline-flex; align-items: center; gap: 0.4rem; border-radius: 999px; background: color-mix(in oklch, var(--color-primary) 10%, transparent); color: var(--color-primary); border: 1px solid color-mix(in oklch, var(--color-primary) 20%, transparent); padding: 0.25rem 0.65rem; font-size: 0.75rem; font-weight: 600; }
+@utility presentation-overlay { position: fixed; inset: 0; z-index: 100; overflow-y: auto; background: var(--color-background); display: flex; flex-direction: column; }
+@utility timeline-item { display: flex; gap: 1rem; position: relative; padding-bottom: 1.5rem; &:last-child { padding-bottom: 0; } }
+@utility timeline-line { position: absolute; left: 0.95rem; top: 2rem; bottom: 0; width: 2px; background: var(--color-border); }
+@utility timeline-marker { display: grid; width: 2rem; height: 2rem; flex: 0 0 auto; place-items: center; border-radius: 999px; background: var(--color-accent); color: var(--color-primary); z-index: 1; border: 2px solid var(--color-background); }
+

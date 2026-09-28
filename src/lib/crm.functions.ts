@@ -2,24 +2,94 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
+export const DEFAULT_COMMERCIAL_TRIGGERS = [
+  {
+    id: "trigger-1",
+    name: "Condição Especial",
+    title: "Condição Especial",
+    description: "Condição especial disponível neste atendimento",
+    trigger_type: "special_condition",
+    template_text: "Condição especial disponível exclusivamente neste atendimento.",
+    is_active: true,
+    sort_order: 1,
+  },
+  {
+    id: "trigger-2",
+    name: "Economia Real",
+    title: "Economia Garantida",
+    description: "Destaque do valor economizado",
+    trigger_type: "economy",
+    template_text: "Você economiza {{economy}} nesta condição especial.",
+    is_active: true,
+    sort_order: 2,
+  },
+  {
+    id: "trigger-3",
+    name: "Validade da Condição",
+    title: "Validade Garantida",
+    description: "Informação clara sobre o prazo da condição",
+    trigger_type: "validity",
+    template_text: "Esta condição é válida até {{valid_until}}.",
+    is_active: true,
+    sort_order: 3,
+  },
+  {
+    id: "trigger-4",
+    name: "Percentual de Desconto",
+    title: "Desconto Aplicado",
+    description: "Exibe percentual real de desconto",
+    trigger_type: "discount_pct",
+    template_text: "Desconto total aplicado: {{discount_pct}}%.",
+    is_active: true,
+    sort_order: 4,
+  },
+  {
+    id: "trigger-5",
+    name: "Última Condição",
+    title: "Atendimento Imediato",
+    description: "Destaque da condição apresentada na conversa",
+    trigger_type: "custom",
+    template_text: "Condição apresentada em tempo real para a sua matrícula.",
+    is_active: true,
+    sort_order: 5,
+  },
+];
+
+async function getAdminClient() {
+  if (process.env["SUPABASE_SERVICE_ROLE_KEY"]) {
+    try {
+      const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+      return supabaseAdmin;
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
 export const bootstrapProfile = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: { fullName?: string }) => z.object({ fullName: z.string().max(120).optional() }).parse(input))
+  .inputValidator((input: { fullName?: string; initialRole?: "admin" | "manager" | "seller" }) =>
+    z.object({ fullName: z.string().max(120).optional(), initialRole: z.enum(["admin", "manager", "seller"]).optional() }).parse(input)
+  )
   .handler(async ({ data, context }) => {
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { data: existing } = await supabaseAdmin.from("profiles").select("id").eq("id", context.userId).maybeSingle();
+    const adminClient = await getAdminClient();
+    const db = adminClient || context.supabase;
+
+    const { data: existing } = await db.from("profiles").select("id").eq("id", context.userId).maybeSingle();
     if (!existing) {
       const metadata = context.claims["user_metadata"] as Record<string, unknown> | undefined;
       const name = data.fullName?.trim() || String(metadata?.["full_name"] ?? context.claims["email"] ?? "Novo usuário");
-      const { error } = await supabaseAdmin.from("profiles").insert({ id: context.userId, full_name: name });
-      if (error) throw new Error("Não foi possível criar o perfil.");
+      const { error } = await db.from("profiles").insert({ id: context.userId, full_name: name, status: "active" });
+      if (error) console.error("Error creating profile:", error.message);
     }
-    const { data: currentRole } = await supabaseAdmin.from("user_roles").select("role").eq("user_id", context.userId).maybeSingle();
+
+    const { data: currentRole } = await db.from("user_roles").select("role").eq("user_id", context.userId).maybeSingle();
     if (!currentRole) {
-      const { count } = await supabaseAdmin.from("user_roles").select("id", { count: "exact", head: true });
-      const role = count === 0 ? "admin" : "seller";
-      const { error } = await supabaseAdmin.from("user_roles").insert({ user_id: context.userId, role });
-      if (error) throw new Error("Não foi possível definir o acesso.");
+      const { count } = await db.from("user_roles").select("id", { count: "exact", head: true });
+      const role = data.initialRole || (count === 0 ? "admin" : "seller");
+      const { error } = await db.from("user_roles").insert({ user_id: context.userId, role });
+      if (error) console.error("Error assigning role:", error.message);
     }
     return { ok: true };
   });
@@ -28,8 +98,23 @@ export const getWorkspace = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
     const db = context.supabase;
-    const [profile, roles, areas, courses, methods, installments, prices, discounts, conditions, stages, students, proposals, followups] = await Promise.all([
-      db.from("profiles").select("*").eq("id", context.userId).single(),
+
+    const [
+      profileRes,
+      rolesRes,
+      areasRes,
+      coursesRes,
+      methodsRes,
+      installmentsRes,
+      pricesRes,
+      discountsRes,
+      conditionsRes,
+      stagesRes,
+      allProfilesRes,
+      allRolesRes,
+      teamsRes,
+    ] = await Promise.all([
+      db.from("profiles").select("*").eq("id", context.userId).maybeSingle(),
       db.from("user_roles").select("role").eq("user_id", context.userId),
       db.from("areas").select("*").eq("status", "active").order("sort_order"),
       db.from("courses").select("*").eq("status", "active").order("sort_order"),
@@ -39,26 +124,141 @@ export const getWorkspace = createServerFn({ method: "GET" })
       db.from("discount_rules").select("*").eq("status", "active"),
       db.from("commercial_conditions").select("*").eq("status", "active"),
       db.from("crm_stages").select("*").eq("status", "active").order("sort_order"),
-      db.from("students").select("*").order("created_at", { ascending: false }),
-      db.from("proposals").select("*").order("created_at", { ascending: false }),
-      db.from("followups").select("*").order("due_at"),
+      db.from("profiles").select("*"),
+      db.from("user_roles").select("*"),
+      db.from("teams").select("*").eq("status", "active"),
     ]);
-    const errors = [profile, roles, areas, courses, methods, installments, prices, discounts, conditions, stages, students, proposals, followups].map((r) => r.error).filter(Boolean);
-    if (errors.length) throw new Error("Não foi possível carregar o ambiente comercial.");
+
+    const userRoles = (rolesRes.data ?? []).map((r) => r.role);
+    const isAdmin = userRoles.includes("admin");
+    const isManager = userRoles.includes("manager");
+    const isSeller = !isAdmin && !isManager;
+
+    let studentsQuery = db.from("students").select("*").order("created_at", { ascending: false });
+    let proposalsQuery = db.from("proposals").select("*").order("created_at", { ascending: false });
+    let followupsQuery = db.from("followups").select("*").order("due_at");
+    let interactionsQuery = db.from("student_interactions").select("*").order("created_at", { ascending: false }).limit(200);
+
+    // Filter by seller ownership if user is seller
+    if (isSeller) {
+      studentsQuery = studentsQuery.eq("owner_id", context.userId);
+      proposalsQuery = proposalsQuery.eq("seller_id", context.userId);
+      followupsQuery = followupsQuery.eq("seller_id", context.userId);
+    }
+
+    const [studentsRes, proposalsRes, followupsRes, interactionsRes, triggersRes, salesRes] = await Promise.all([
+      studentsQuery,
+      proposalsQuery,
+      followupsQuery,
+      interactionsQuery,
+      (db as any).from("commercial_triggers").select("*").order("sort_order").then((res: any) => (res.error ? { data: null } : res)),
+      (db as any).from("sales").select("*").order("created_at", { ascending: false }).then((res: any) => (res.error ? { data: null } : res)),
+    ]);
+
+    // Build sellers list for manager & admin
+    const allProfiles = allProfilesRes.data ?? [];
+    const allRoles = allRolesRes.data ?? [];
+    const allStudents = studentsRes.data ?? [];
+    const allProposals = proposalsRes.data ?? [];
+    const allFollowups = followupsRes.data ?? [];
+
+    const sellers = allProfiles.map((p) => {
+      const pRole = allRoles.find((r) => r.user_id === p.id)?.role ?? "seller";
+      const sellerStudents = allStudents.filter((s) => s.owner_id === p.id);
+      const sellerProposals = allProposals.filter((pr) => pr.seller_id === p.id);
+      const sellerSales = sellerProposals.filter((pr) => pr.status === "approved");
+      const sellerFollowups = allFollowups.filter((f) => f.seller_id === p.id && f.status === "pending");
+
+      return {
+        ...p,
+        role: pRole,
+        contactsCount: sellerStudents.length,
+        proposalsCount: sellerProposals.length,
+        salesCount: sellerSales.length,
+        followupsCount: sellerFollowups.length,
+      };
+    });
+
+    const rawTriggers = (triggersRes.data && triggersRes.data.length > 0) ? (triggersRes.data as unknown as typeof DEFAULT_COMMERCIAL_TRIGGERS) : DEFAULT_COMMERCIAL_TRIGGERS;
+    const triggers = rawTriggers.map((t) => ({
+      id: t.id,
+      name: t.name,
+      title: t.title,
+      description: t.description || null,
+      trigger_type: t.trigger_type,
+      template_text: t.template_text,
+      is_active: t.is_active ?? true,
+      sort_order: t.sort_order ?? 0,
+    }));
+
     return {
       userId: context.userId,
-      profile: profile.data,
-      roles: roles.data ?? [], areas: areas.data ?? [], courses: courses.data ?? [],
-      methods: methods.data ?? [], installments: installments.data ?? [], prices: prices.data ?? [],
-      discounts: discounts.data ?? [], conditions: conditions.data ?? [], stages: stages.data ?? [],
-      students: students.data ?? [], proposals: proposals.data ?? [], followups: followups.data ?? [],
+      profile: profileRes.data,
+      roles: rolesRes.data ?? [],
+      isAdmin,
+      isManager,
+      isSeller,
+      areas: areasRes.data ?? [],
+      courses: coursesRes.data ?? [],
+      methods: methodsRes.data ?? [],
+      installments: installmentsRes.data ?? [],
+      prices: pricesRes.data ?? [],
+      discounts: discountsRes.data ?? [],
+      conditions: conditionsRes.data ?? [],
+      stages: stagesRes.data ?? [],
+      triggers,
+      teams: teamsRes.data ?? [],
+      sellers,
+      students: allStudents,
+      proposals: allProposals,
+      followups: allFollowups,
+      interactions: interactionsRes.data ?? [],
+      sales: salesRes.data ?? [],
     };
   });
 
+export const searchStudentByWhatsapp = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input) => z.object({ whatsapp: z.string().min(5) }).parse(input))
+  .handler(async ({ data, context }) => {
+    const cleanNumber = data.whatsapp.replace(/\D/g, "");
+    if (!cleanNumber) return { found: false, student: null };
+
+    const { data: student } = await context.supabase
+      .from("students")
+      .select("*")
+      .ilike("whatsapp", `%${cleanNumber}%`)
+      .limit(1)
+      .maybeSingle();
+
+    return {
+      found: Boolean(student),
+      student: student ?? null,
+    };
+  });
+
+const modularDiscountItem = z.object({
+  name: z.string(),
+  kind: z.enum(["percentage", "fixed"]),
+  value: z.number().nonnegative(),
+  amount: z.number().nonnegative(),
+});
+
 const proposalInput = z.object({
-  studentName: z.string().min(2).max(120), whatsapp: z.string().min(8).max(30), email: z.string().email().optional().or(z.literal("")),
-  courseId: z.string().uuid(), paymentMethodId: z.string().uuid(), installmentId: z.string().uuid(), discountId: z.string().uuid().optional().or(z.literal("")),
-  notes: z.string().max(1000).optional(), followupAt: z.string().optional(), followupNotes: z.string().max(500).optional(),
+  studentId: z.string().uuid().optional().or(z.literal("")),
+  studentName: z.string().min(2).max(120),
+  whatsapp: z.string().min(8).max(30),
+  email: z.string().email().optional().or(z.literal("")),
+  courseId: z.string().uuid(),
+  paymentMethodId: z.string().uuid(),
+  installmentId: z.string().uuid(),
+  discountId: z.string().uuid().optional().or(z.literal("")),
+  matriculaDiscount: z.number().nonnegative().optional().default(0),
+  entradaDiscount: z.number().nonnegative().optional().default(0),
+  modularDiscounts: z.array(modularDiscountItem).optional().default([]),
+  notes: z.string().max(2000).optional(),
+  followupAt: z.string().optional(),
+  followupNotes: z.string().max(500).optional(),
 });
 
 export const createProposal = createServerFn({ method: "POST" })
@@ -66,7 +266,15 @@ export const createProposal = createServerFn({ method: "POST" })
   .inputValidator((input) => proposalInput.parse(input))
   .handler(async ({ data, context }) => {
     const db = context.supabase;
-    const [{ data: course }, { data: method }, { data: installment }, { data: discount }, { data: roleRows }, { data: condition }] = await Promise.all([
+
+    const [
+      { data: course },
+      { data: method },
+      { data: installment },
+      { data: discountRule },
+      { data: roleRows },
+      { data: condition },
+    ] = await Promise.all([
       db.from("courses").select("*, areas(name)").eq("id", data.courseId).eq("status", "active").single(),
       db.from("payment_methods").select("*").eq("id", data.paymentMethodId).eq("status", "active").single(),
       db.from("installment_options").select("*").eq("id", data.installmentId).eq("status", "active").single(),
@@ -74,37 +282,497 @@ export const createProposal = createServerFn({ method: "POST" })
       db.from("user_roles").select("role").eq("user_id", context.userId),
       db.from("commercial_conditions").select("*").eq("course_id", data.courseId).eq("payment_method_id", data.paymentMethodId).eq("installment_option_id", data.installmentId).eq("status", "active").maybeSingle(),
     ]);
+
     if (!course || !method || !installment) throw new Error("A condição selecionada não está mais disponível.");
+
     const roles = (roleRows ?? []).map((r) => r.role);
-    if (discount && !discount.allowed_roles.some((role) => roles.includes(role))) throw new Error("Este desconto não está autorizado para seu perfil.");
-    const { data: configuredPrice } = await db.from("course_prices").select("price").eq("course_id", data.courseId).eq("payment_method_id", data.paymentMethodId).eq("installment_option_id", data.installmentId).eq("status", "active").maybeSingle();
-    const original = Number(configuredPrice?.price ?? course.base_price);
-    let discountAmount = 0;
-    if (discount) discountAmount = discount.kind === "percentage" ? original * Number(discount.value) / 100 : Number(discount.value);
-    if (discount?.max_discount != null) discountAmount = Math.min(discountAmount, Number(discount.max_discount));
-    let finalPrice = Math.max(0, original - discountAmount);
-    if (discount?.min_final_price != null) finalPrice = Math.max(finalPrice, Number(discount.min_final_price));
-    finalPrice = Math.round(finalPrice * 100) / 100;
-    discountAmount = Math.round((original - finalPrice) * 100) / 100;
-    const installmentValue = Math.floor((finalPrice / installment.installments) * 100) / 100;
-    const whatsapp = data.whatsapp.replace(/\D/g, "");
-    let { data: student } = await db.from("students").select("*").eq("whatsapp", whatsapp).maybeSingle();
-    if (!student) {
-      const firstStage = await db.from("crm_stages").select("id").eq("status", "active").order("sort_order").limit(1).single();
-      const inserted = await db.from("students").insert({ full_name: data.studentName, whatsapp, email: data.email || null, owner_id: context.userId, crm_stage_id: firstStage.data?.id ?? null }).select().single();
-      if (inserted.error) throw new Error("Não foi possível cadastrar o contato.");
-      student = inserted.data;
-      await db.from("student_assignments").insert({ student_id: student.id, seller_id: context.userId, assigned_by: context.userId, reason: "Criação pela simulação" });
+    if (discountRule && !discountRule.allowed_roles.some((role) => roles.includes(role))) {
+      throw new Error("Este desconto não está autorizado para seu perfil.");
     }
-    if (!student) throw new Error("Contato inválido.");
-    const validUntil = new Date(Date.now() + Number(condition?.validity_minutes ?? 60) * 60000).toISOString();
+
+    // Determine base price
+    const { data: configuredPrice } = await db
+      .from("course_prices")
+      .select("price")
+      .eq("course_id", data.courseId)
+      .eq("payment_method_id", data.paymentMethodId)
+      .eq("installment_option_id", data.installmentId)
+      .eq("status", "active")
+      .maybeSingle();
+
+    const originalPrice = Number(configuredPrice?.price ?? course.base_price);
+
+    // Calculate modular discounts
+    const discountItems: Array<{ name: string; kind: "percentage" | "fixed"; value: number; amount: number }> = [];
+
+    if (discountRule) {
+      const amt = discountRule.kind === "percentage" ? (originalPrice * Number(discountRule.value)) / 100 : Number(discountRule.value);
+      discountItems.push({
+        name: discountRule.name,
+        kind: discountRule.kind,
+        value: Number(discountRule.value),
+        amount: Math.min(amt, Number(discountRule.max_discount ?? amt)),
+      });
+    }
+
+    if (data.matriculaDiscount > 0) {
+      discountItems.push({
+        name: "Desconto Matrícula",
+        kind: "fixed",
+        value: data.matriculaDiscount,
+        amount: data.matriculaDiscount,
+      });
+    }
+
+    if (data.entradaDiscount > 0) {
+      discountItems.push({
+        name: "Desconto Entrada",
+        kind: "fixed",
+        value: data.entradaDiscount,
+        amount: data.entradaDiscount,
+      });
+    }
+
+    for (const mod of data.modularDiscounts) {
+      if (mod.amount > 0) discountItems.push(mod);
+    }
+
+    const totalDiscountAmount = Math.min(
+      originalPrice,
+      discountItems.reduce((acc, curr) => acc + curr.amount, 0)
+    );
+
+    let finalPrice = Math.max(0, originalPrice - totalDiscountAmount);
+    if (discountRule?.min_final_price != null) {
+      finalPrice = Math.max(finalPrice, Number(discountRule.min_final_price));
+    }
+
+    finalPrice = Math.round(finalPrice * 100) / 100;
+    const finalDiscountAmount = Math.round((originalPrice - finalPrice) * 100) / 100;
+    const installmentValue = Math.floor((finalPrice / installment.installments) * 100) / 100;
+
+    // Student handling (Prevent duplication per Requirement 8)
+    const whatsapp = data.whatsapp.replace(/\D/g, "");
+    let studentId = data.studentId;
+    let student: Record<string, unknown> | null = null;
+
+    if (studentId) {
+      const { data: existingStudent } = await db.from("students").select("*").eq("id", studentId).single();
+      student = existingStudent;
+    } else {
+      const { data: existingByPhone } = await db.from("students").select("*").eq("whatsapp", whatsapp).maybeSingle();
+      if (existingByPhone) {
+        student = existingByPhone;
+        studentId = existingByPhone.id;
+      } else {
+        const firstStage = await db.from("crm_stages").select("id").eq("status", "active").order("sort_order").limit(1).single();
+        const inserted = await db
+          .from("students")
+          .insert({
+            full_name: data.studentName,
+            whatsapp,
+            email: data.email || null,
+            owner_id: context.userId,
+            crm_stage_id: firstStage.data?.id ?? null,
+          })
+          .select()
+          .single();
+
+        if (inserted.error) throw new Error("Não foi possível cadastrar o aluno.");
+        student = inserted.data;
+        studentId = inserted.data.id;
+
+        await db.from("student_assignments").insert({
+          student_id: studentId,
+          seller_id: context.userId,
+          assigned_by: context.userId,
+          reason: "Criação de proposta",
+        });
+
+        await db.from("student_interactions").insert({
+          student_id: studentId,
+          user_id: context.userId,
+          kind: "student_created",
+          notes: `Contato cadastrado no sistema (${data.studentName})`,
+        });
+      }
+    }
+
+    if (!studentId || !student) throw new Error("Não foi possível identificar o aluno.");
+
+    // Update CRM stage to "Proposta enviada" if currently in first stage
+    const proposalStage = await db.from("crm_stages").select("id").ilike("name", "%proposta%").limit(1).maybeSingle();
+    if (proposalStage.data?.id) {
+      await db.from("students").update({ crm_stage_id: proposalStage.data.id }).eq("id", studentId);
+    }
+
+    // Set proposal validity
+    const validityMinutes = Number(condition?.validity_minutes ?? 60);
+    const validUntil = new Date(Date.now() + validityMinutes * 60000).toISOString();
     const areaRelation = course.areas as { name?: string } | null;
-    const created = await db.from("proposals").insert({ student_id: student.id, seller_id: context.userId, course_id: course.id, area_name: areaRelation?.name ?? "Área", course_name: course.name, course_workload_hours: course.workload_hours, course_modality: course.modality, original_price: original, discount_name: discount?.name ?? null, discount_kind: discount?.kind ?? null, discount_value: Number(discount?.value ?? 0), discount_amount: discountAmount, final_price: finalPrice, payment_method_name: method.name, installments: installment.installments, installment_value: installmentValue, status: "sent", timer_status: "active", valid_until: validUntil, notes: data.notes || null }).select().single();
-    if (created.error || !created.data) throw new Error("Não foi possível criar a proposta.");
-    await db.from("proposal_events").insert({ proposal_id: created.data.id, user_id: context.userId, action: "created", new_data: created.data });
-    await db.from("proposal_timer_events").insert({ proposal_id: created.data.id, user_id: context.userId, action: "started", new_status: "active", new_valid_until: validUntil });
-    if (data.followupAt) await db.from("followups").insert({ student_id: student.id, seller_id: context.userId, due_at: data.followupAt, notes: data.followupNotes || null });
-    return { proposal: created.data, student };
+
+    // Snapshot payload stored in notes / breakdown
+    const snapshotNotes = JSON.stringify({
+      userNotes: data.notes || "",
+      discountBreakdown: discountItems,
+      validityMinutes,
+      calculatedAt: new Date().toISOString(),
+    });
+
+    const discountSummaryName = discountItems.map((d) => d.name).join(" + ") || "Sem desconto";
+
+    const created = await db
+      .from("proposals")
+      .insert({
+        student_id: studentId,
+        seller_id: context.userId,
+        course_id: course.id,
+        area_name: areaRelation?.name ?? "Área",
+        course_name: course.name,
+        course_workload_hours: course.workload_hours,
+        course_modality: course.modality,
+        original_price: originalPrice,
+        discount_name: discountSummaryName,
+        discount_kind: discountRule?.kind ?? "fixed",
+        discount_value: finalDiscountAmount,
+        discount_amount: finalDiscountAmount,
+        final_price: finalPrice,
+        payment_method_name: method.name,
+        installments: installment.installments,
+        installment_value: installmentValue,
+        status: "sent",
+        timer_status: "active",
+        valid_until: validUntil,
+        notes: snapshotNotes,
+      })
+      .select()
+      .single();
+
+    if (created.error || !created.data) throw new Error("Não foi possível salvar a proposta.");
+
+    // Proposal events and student history
+    await db.from("proposal_events").insert({
+      proposal_id: created.data.id,
+      user_id: context.userId,
+      action: "created",
+      new_data: created.data,
+    });
+
+    await db.from("proposal_timer_events").insert({
+      proposal_id: created.data.id,
+      user_id: context.userId,
+      action: "started",
+      new_status: "active",
+      new_valid_until: validUntil,
+    });
+
+    await db.from("student_interactions").insert({
+      student_id: studentId,
+      user_id: context.userId,
+      kind: "proposal_created",
+      notes: `Proposta gerada: ${course.name} por R$ ${finalPrice.toFixed(2)} (${installment.installments}x de R$ ${installmentValue.toFixed(2)})`,
+      metadata: { proposal_id: created.data.id, final_price: finalPrice },
+    });
+
+    // Followup (if requested)
+    if (data.followupAt) {
+      await db.from("followups").insert({
+        student_id: studentId,
+        seller_id: context.userId,
+        due_at: data.followupAt,
+        notes: data.followupNotes || "Retorno sobre a proposta",
+      });
+
+      await db.from("student_interactions").insert({
+        student_id: studentId,
+        user_id: context.userId,
+        kind: "followup_scheduled",
+        notes: `Retorno agendado para ${new Date(data.followupAt).toLocaleString("pt-BR")}: ${data.followupNotes || ""}`,
+      });
+    }
+
+    return { proposal: created.data, studentId, studentName: data.studentName };
+  });
+
+// Requirement 16: "FECHAR AGORA"
+export const closeSaleNow = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input) => z.object({ proposalId: z.string().uuid(), notes: z.string().max(500).optional() }).parse(input))
+  .handler(async ({ data, context }) => {
+    const db = context.supabase;
+
+    const { data: proposal, error: propErr } = await db.from("proposals").select("*").eq("id", data.proposalId).single();
+    if (propErr || !proposal) throw new Error("Proposta não encontrada.");
+
+    // Update proposal status to approved
+    const { data: updatedProposal, error: updateErr } = await db
+      .from("proposals")
+      .update({
+        status: "approved",
+        timer_status: "completed",
+      })
+      .eq("id", data.proposalId)
+      .select()
+      .single();
+
+    if (updateErr) throw new Error("Não foi possível fechar a venda.");
+
+    // Move student to "Matriculado" (won stage)
+    const wonStage = await db.from("crm_stages").select("id").eq("is_won", true).limit(1).maybeSingle();
+    let targetStageId = wonStage?.data?.id;
+
+    if (!targetStageId) {
+      const matriculadoStage = await db.from("crm_stages").select("id").ilike("name", "%matriculad%").limit(1).maybeSingle();
+      targetStageId = matriculadoStage?.data?.id;
+    }
+
+    if (targetStageId) {
+      await db.from("students").update({ crm_stage_id: targetStageId }).eq("id", proposal.student_id);
+    }
+
+    // Try inserting into sales table (fail-safe if table doesn't exist yet in remote DB)
+    try {
+      await (db as any).from("sales").insert({
+        proposal_id: proposal.id,
+        student_id: proposal.student_id,
+        seller_id: context.userId,
+        course_id: proposal.course_id,
+        course_name: proposal.course_name,
+        original_price: proposal.original_price,
+        discount_amount: proposal.discount_amount,
+        final_price: proposal.final_price,
+        payment_method_name: proposal.payment_method_name,
+        installments: proposal.installments,
+        installment_value: proposal.installment_value,
+        snapshot: proposal,
+        notes: data.notes || "Venda confirmada pelo atendimento",
+      });
+    } catch (err) {
+      console.warn("Could not insert into sales table:", err);
+    }
+
+    // Register proposal event
+    await db.from("proposal_events").insert({
+      proposal_id: proposal.id,
+      user_id: context.userId,
+      action: "sale_confirmed",
+      new_data: { status: "approved", closed_at: new Date().toISOString() },
+      notes: data.notes || "Venda fechada com sucesso",
+    });
+
+    // Register student timeline interaction
+    await db.from("student_interactions").insert({
+      student_id: proposal.student_id,
+      user_id: context.userId,
+      kind: "sale_confirmed",
+      notes: `Venda confirmada: ${proposal.course_name} no valor de R$ ${Number(proposal.final_price).toFixed(2)} (${proposal.payment_method_name}, ${proposal.installments}x).`,
+      metadata: { proposal_id: proposal.id, final_price: proposal.final_price },
+    });
+
+    return { ok: true, proposal: updatedProposal };
+  });
+
+// Requirement 17 & 18: "DEIXAR PARA DEPOIS" (Agendar Retorno)
+export const deferProposalFollowup = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator(
+    z.object({
+      proposalId: z.string().uuid(),
+      dueAt: z.string().min(5),
+      notes: z.string().min(2).max(1000),
+    })
+  )
+  .handler(async ({ data, context }) => {
+    const db = context.supabase;
+
+    const { data: proposal, error: propErr } = await db.from("proposals").select("*").eq("id", data.proposalId).single();
+    if (propErr || !proposal) throw new Error("Proposta não encontrada.");
+
+    // Update proposal status to awaiting_response
+    await db
+      .from("proposals")
+      .update({
+        status: "awaiting_response",
+      })
+      .eq("id", data.proposalId);
+
+    // Create followup record
+    const { data: followup, error: followErr } = await db
+      .from("followups")
+      .insert({
+        student_id: proposal.student_id,
+        seller_id: context.userId,
+        due_at: data.dueAt,
+        notes: data.notes,
+        status: "pending",
+      })
+      .select()
+      .single();
+
+    if (followErr) throw new Error("Não foi possível agendar o retorno.");
+
+    // Move student to "Retorno agendado" / "Aguardando resposta" stage
+    const retornoStage = await db.from("crm_stages").select("id").ilike("name", "%retorno%").limit(1).maybeSingle();
+    if (retornoStage?.data?.id) {
+      await db.from("students").update({ crm_stage_id: retornoStage.data.id }).eq("id", proposal.student_id);
+    }
+
+    // Register proposal event
+    await db.from("proposal_events").insert({
+      proposal_id: proposal.id,
+      user_id: context.userId,
+      action: "followup_scheduled",
+      new_data: { due_at: data.dueAt, notes: data.notes },
+    });
+
+    // Register student timeline interaction
+    await db.from("student_interactions").insert({
+      student_id: proposal.student_id,
+      user_id: context.userId,
+      kind: "followup_scheduled",
+      notes: `Retorno agendado para ${new Date(data.dueAt).toLocaleString("pt-BR")}: "${data.notes}"`,
+      metadata: { proposal_id: proposal.id, due_at: data.dueAt },
+    });
+
+    return { ok: true, followup };
+  });
+
+// Requirement 27: Transferência de contatos
+export const transferStudents = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator(
+    z.object({
+      studentIds: z.array(z.string().uuid()).min(1),
+      targetSellerId: z.string().uuid().nullable(),
+      reason: z.string().min(2).max(500),
+    })
+  )
+  .handler(async ({ data, context }) => {
+    const db = context.supabase;
+
+    const { data: isAuth } = await db.rpc("has_role", { _user_id: context.userId, _role: "admin" });
+    const { data: isManager } = await db.rpc("has_role", { _user_id: context.userId, _role: "manager" });
+
+    if (!isAuth && !isManager) {
+      throw new Error("Somente gerentes e administradores podem transferir contatos.");
+    }
+
+    let targetName = "Sem responsável (Banco de Leads)";
+    if (data.targetSellerId) {
+      const { data: targetProfile } = await db.from("profiles").select("full_name").eq("id", data.targetSellerId).single();
+      if (targetProfile) targetName = targetProfile.full_name;
+    }
+
+    // Update students
+    for (const sId of data.studentIds) {
+      await db.from("students").update({ owner_id: data.targetSellerId }).eq("id", sId);
+
+      await db.from("student_assignments").insert({
+        student_id: sId,
+        seller_id: data.targetSellerId,
+        assigned_by: context.userId,
+        reason: data.reason,
+      });
+
+      await db.from("student_interactions").insert({
+        student_id: sId,
+        user_id: context.userId,
+        kind: "contact_transferred",
+        notes: `Contato transferido para ${targetName}. Motivo: ${data.reason}`,
+      });
+    }
+
+    return { ok: true, count: data.studentIds.length };
+  });
+
+// Requirement 4: Gerenciamento de Vendedores
+export const manageSeller = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) =>
+    z.object({
+      action: z.enum(["create", "update", "toggle_status"]),
+      sellerId: z.string().uuid().optional(),
+      fullName: z.string().min(2).max(120).optional(),
+      email: z.string().email().optional(),
+      phone: z.string().max(30).optional(),
+      jobTitle: z.string().max(80).optional(),
+      teamId: z.string().uuid().nullable().optional(),
+      status: z.enum(["active", "inactive"]).optional(),
+    }).parse(input)
+  )
+  .handler(async ({ data, context }) => {
+    const adminClient = await getAdminClient();
+    const db = adminClient || context.supabase;
+
+    const { data: isAdmin } = await context.supabase.rpc("has_role", { _user_id: context.userId, _role: "admin" });
+    const { data: isManager } = await context.supabase.rpc("has_role", { _user_id: context.userId, _role: "manager" });
+
+    if (!isAdmin && !isManager) {
+      throw new Error("Somente gerentes e administradores podem gerenciar vendedores.");
+    }
+
+    if (data.action === "create") {
+      if (!data.fullName) throw new Error("Nome é obrigatório.");
+      const newId = crypto.randomUUID();
+
+      const { data: newProfile, error: profErr } = await db
+        .from("profiles")
+        .insert({
+          id: newId,
+          full_name: data.fullName,
+          phone: data.phone || null,
+          job_title: data.jobTitle || "Vendedor",
+          team_id: data.teamId || null,
+          manager_id: context.userId,
+          status: "active",
+        })
+        .select()
+        .single();
+
+      if (profErr) throw new Error(profErr.message);
+
+      await db.from("user_roles").insert({
+        user_id: newId,
+        role: "seller",
+      });
+
+      return { ok: true, seller: newProfile };
+    }
+
+    if (data.action === "update" && data.sellerId) {
+      const updatePayload: Record<string, any> = {};
+      if (data.fullName !== undefined) updatePayload["full_name"] = data.fullName;
+      if (data.phone !== undefined) updatePayload["phone"] = data.phone;
+      if (data.jobTitle !== undefined) updatePayload["job_title"] = data.jobTitle;
+      if (data.teamId !== undefined) updatePayload["team_id"] = data.teamId;
+      if (data.status !== undefined) updatePayload["status"] = data.status;
+
+      const { data: updated, error } = await (db.from("profiles") as any)
+        .update(updatePayload)
+        .eq("id", data.sellerId)
+        .select()
+        .single();
+
+      if (error) throw new Error(error.message);
+      return { ok: true, seller: updated };
+    }
+
+    if (data.action === "toggle_status" && data.sellerId) {
+      const { data: current } = await db.from("profiles").select("status").eq("id", data.sellerId).single();
+      const newStatus = current?.status === "active" ? "inactive" : "active";
+
+      const { data: updated, error } = await db
+        .from("profiles")
+        .update({ status: newStatus })
+        .eq("id", data.sellerId)
+        .select()
+        .single();
+
+      if (error) throw new Error(error.message);
+      return { ok: true, seller: updated, status: newStatus };
+    }
+
+    throw new Error("Ação inválida.");
   });
 
 export const moveStudent = createServerFn({ method: "POST" })
@@ -114,20 +782,32 @@ export const moveStudent = createServerFn({ method: "POST" })
     const before = await context.supabase.from("students").select("crm_stage_id").eq("id", data.studentId).single();
     const result = await context.supabase.from("students").update({ crm_stage_id: data.stageId }).eq("id", data.studentId).select().single();
     if (result.error) throw new Error("Não foi possível mover o contato.");
-    await context.supabase.from("student_interactions").insert({ student_id: data.studentId, user_id: context.userId, kind: "stage_changed", metadata: { from: before.data?.crm_stage_id, to: data.stageId } });
+    await context.supabase.from("student_interactions").insert({
+      student_id: data.studentId,
+      user_id: context.userId,
+      kind: "stage_changed",
+      metadata: { from: before.data?.crm_stage_id, to: data.stageId },
+    });
     return result.data;
   });
 
 export const updateProposalTimer = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input) => z.object({ proposalId: z.string().uuid(), action: z.enum(["pause", "resume", "extend30", "extend60", "complete", "cancel"]) }).parse(input))
+  .inputValidator((input: unknown) =>
+    z.object({
+      proposalId: z.string().uuid(),
+      action: z.enum(["pause", "resume", "extend30", "extend60", "complete", "cancel"]),
+    }).parse(input)
+  )
   .handler(async ({ data, context }) => {
     const current = await context.supabase.from("proposals").select("*").eq("id", data.proposalId).single();
     if (current.error || !current.data) throw new Error("Proposta não encontrada.");
+
     const now = Date.now();
     let status = current.data.timer_status;
     let validUntil = current.data.valid_until;
     let remaining = current.data.timer_remaining_seconds;
+
     if (data.action === "pause") {
       status = "paused";
       remaining = Math.max(0, Math.floor((new Date(validUntil ?? now).getTime() - now) / 1000));
@@ -139,32 +819,138 @@ export const updateProposalTimer = createServerFn({ method: "POST" })
       const minutes = data.action === "extend30" ? 30 : 60;
       if (status === "paused") remaining = Number(remaining ?? 0) + minutes * 60;
       else validUntil = new Date(Math.max(now, new Date(validUntil ?? now).getTime()) + minutes * 60000).toISOString();
-    } else status = data.action === "complete" ? "completed" : "cancelled";
-    const updated = await context.supabase.from("proposals").update({ timer_status: status, valid_until: validUntil, timer_remaining_seconds: remaining }).eq("id", data.proposalId).select().single();
+    } else {
+      status = data.action === "complete" ? "completed" : "cancelled";
+    }
+
+    const updated = await context.supabase
+      .from("proposals")
+      .update({ timer_status: status, valid_until: validUntil, timer_remaining_seconds: remaining })
+      .eq("id", data.proposalId)
+      .select()
+      .single();
+
     if (updated.error) throw new Error("Não foi possível alterar o timer.");
-    await context.supabase.from("proposal_timer_events").insert({ proposal_id: data.proposalId, user_id: context.userId, action: data.action, previous_status: current.data.timer_status, new_status: status, previous_valid_until: current.data.valid_until, new_valid_until: validUntil });
+
+    await context.supabase.from("proposal_timer_events").insert({
+      proposal_id: data.proposalId,
+      user_id: context.userId,
+      action: data.action,
+      previous_status: current.data.timer_status,
+      new_status: status,
+      previous_valid_until: current.data.valid_until,
+      new_valid_until: validUntil,
+    });
+
     return updated.data;
   });
 
 export const saveCatalogItem = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input) => z.object({ type: z.enum(["area", "course", "stage"]), name: z.string().min(2).max(120), areaId: z.string().uuid().optional(), workload: z.number().int().positive().optional(), modality: z.string().max(60).optional(), basePrice: z.number().nonnegative().optional() }).parse(input))
+  .inputValidator((input: unknown) =>
+    z.object({
+      type: z.enum(["area", "course", "stage", "trigger", "discount"]),
+      name: z.string().min(2).max(120),
+      areaId: z.string().uuid().optional(),
+      workload: z.number().int().positive().optional(),
+      modality: z.string().max(60).optional(),
+      basePrice: z.number().nonnegative().optional(),
+      discountKind: z.enum(["percentage", "fixed"]).optional(),
+      discountValue: z.number().nonnegative().optional(),
+      triggerTitle: z.string().max(120).optional(),
+      triggerText: z.string().max(500).optional(),
+      triggerType: z.string().max(50).optional(),
+    }).parse(input)
+  )
   .handler(async ({ data, context }) => {
     const { data: isAdmin } = await context.supabase.rpc("has_role", { _user_id: context.userId, _role: "admin" });
-    if (!isAdmin) throw new Error("Somente administradores podem alterar configurações.");
+    const { data: isManager } = await context.supabase.rpc("has_role", { _user_id: context.userId, _role: "manager" });
+
+    if (!isAdmin && !isManager) throw new Error("Somente administradores e gerentes podem alterar configurações.");
+
     if (data.type === "area") {
       const result = await context.supabase.from("areas").insert({ name: data.name }).select().single();
       if (result.error) throw new Error(result.error.message);
       return { id: result.data.id };
     }
+
     if (data.type === "stage") {
       const { count } = await context.supabase.from("crm_stages").select("id", { count: "exact", head: true });
       const result = await context.supabase.from("crm_stages").insert({ name: data.name, sort_order: Number(count ?? 0) + 1 }).select().single();
       if (result.error) throw new Error(result.error.message);
       return { id: result.data.id };
     }
-    if (!data.areaId || !data.workload || !data.modality || data.basePrice == null) throw new Error("Preencha todos os dados do curso.");
-    const result = await context.supabase.from("courses").insert({ name: data.name, area_id: data.areaId, workload_hours: data.workload, modality: data.modality, base_price: data.basePrice }).select().single();
+
+    if (data.type === "discount") {
+      const result = await context.supabase
+        .from("discount_rules")
+        .insert({
+          name: data.name,
+          kind: data.discountKind ?? "percentage",
+          value: data.discountValue ?? 10,
+          allowed_roles: ["seller", "manager", "admin"],
+        })
+        .select()
+        .single();
+      if (result.error) throw new Error(result.error.message);
+      return { id: result.data.id };
+    }
+
+    if (data.type === "trigger") {
+      try {
+        const result = await (context.supabase as any)
+          .from("commercial_triggers")
+          .insert({
+            name: data.name,
+            title: data.triggerTitle || data.name,
+            description: data.triggerText || "",
+            template_text: data.triggerText || data.name,
+            trigger_type: data.triggerType || "badge",
+          })
+          .select()
+          .single();
+        if (result.error) throw new Error(result.error.message);
+        return { id: result.data.id };
+      } catch (err) {
+        throw new Error(err instanceof Error ? err.message : "Não foi possível salvar o gatilho.");
+      }
+    }
+
+    if (!data.areaId || !data.workload || !data.modality || data.basePrice == null) {
+      throw new Error("Preencha todos os dados do curso.");
+    }
+
+    const result = await context.supabase
+      .from("courses")
+      .insert({
+        name: data.name,
+        area_id: data.areaId,
+        workload_hours: data.workload,
+        modality: data.modality,
+        base_price: data.basePrice,
+      })
+      .select()
+      .single();
+
     if (result.error) throw new Error(result.error.message);
     return { id: result.data.id };
+  });
+
+export const getStudentTimeline = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input) => z.object({ studentId: z.string().uuid() }).parse(input))
+  .handler(async ({ data, context }) => {
+    const db = context.supabase;
+
+    const [interactionsRes, proposalsRes, followupsRes] = await Promise.all([
+      db.from("student_interactions").select("*").eq("student_id", data.studentId).order("created_at", { ascending: false }),
+      db.from("proposals").select("*").eq("student_id", data.studentId).order("created_at", { ascending: false }),
+      db.from("followups").select("*").eq("student_id", data.studentId).order("created_at", { ascending: false }),
+    ]);
+
+    return {
+      interactions: interactionsRes.data ?? [],
+      proposals: proposalsRes.data ?? [],
+      followups: followupsRes.data ?? [],
+    };
   });
