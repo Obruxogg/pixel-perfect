@@ -24,10 +24,10 @@ import { transferStudents, getStudentTimeline } from "@/lib/crm.functions";
 export const Route = createFileRoute("/_authenticated/contatos")({
   head: () => ({
     meta: [
-      { title: "Contatos — Nexo Comercial" },
-      { name: "description", content: "Carteira de alunos e contatos comerciais com histórico completo." },
-      { property: "og:title", content: "Contatos — Nexo Comercial" },
-      { property: "og:description", content: "Carteira de alunos e contatos comerciais com histórico completo." },
+      { title: "Contatos — Instituto Mix" },
+      { name: "description", content: "Carteira de alunos e contatos comerciais do Instituto Mix de Profissões." },
+      { property: "og:title", content: "Contatos — Instituto Mix" },
+      { property: "og:description", content: "Carteira de alunos e contatos comerciais do Instituto Mix de Profissões." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
     ],

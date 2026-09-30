@@ -25,10 +25,10 @@ import { updateProposalTimer, closeSaleNow, deferProposalFollowup } from "@/lib/
 export const Route = createFileRoute("/_authenticated/propostas")({
   head: () => ({
     meta: [
-      { title: "Propostas — Nexo Comercial" },
-      { name: "description", content: "Propostas comerciais, validade das condições e snapshots." },
-      { property: "og:title", content: "Propostas — Nexo Comercial" },
-      { property: "og:description", content: "Propostas comerciais, validade das condições e snapshots." },
+      { title: "Propostas — Instituto Mix" },
+      { name: "description", content: "Propostas comerciais e condições do Instituto Mix de Profissões." },
+      { property: "og:title", content: "Propostas — Instituto Mix" },
+      { property: "og:description", content: "Propostas comerciais e condições do Instituto Mix de Profissões." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
     ],
@@ -166,8 +166,8 @@ function ProposalsPage() {
               <GraduationCap size={24} />
             </span>
             <div>
-              <strong className="block text-lg font-bold">Nexo Comercial</strong>
-              <span className="text-xs text-muted-foreground uppercase tracking-widest font-semibold">
+              <strong className="block text-lg font-extrabold text-foreground tracking-tight">Instituto Mix</strong>
+              <span className="text-xs text-primary uppercase tracking-widest font-bold block">
                 Proposta Comercial
               </span>
             </div>

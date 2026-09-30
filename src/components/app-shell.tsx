@@ -98,8 +98,8 @@ export function AppShell({
             <GraduationCap size={22} />
           </span>
           <div>
-            <strong className="block text-base leading-tight font-bold">Nexo Comercial</strong>
-            <span className="text-xs text-muted-foreground">Sistema de Atendimento</span>
+            <strong className="block text-base leading-tight font-extrabold tracking-tight">Instituto Mix</strong>
+            <span className="text-xs font-semibold text-primary">Portal Comercial</span>
           </div>
         </div>
 

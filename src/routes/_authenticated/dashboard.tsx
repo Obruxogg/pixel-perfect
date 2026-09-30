@@ -37,9 +37,9 @@ import { completeFollowup, createQuickStudent, manageSeller } from "@/lib/crm.fu
 export const Route = createFileRoute("/_authenticated/dashboard")({
   head: () => ({
     meta: [
-      { title: "Painel Comercial — Nexo Comercial" },
+      { title: "Painel Comercial — Instituto Mix" },
       { name: "description", content: "Indicadores, propostas e retornos da operação comercial." },
-      { property: "og:title", content: "Painel Comercial — Nexo Comercial" },
+      { property: "og:title", content: "Painel Comercial — Instituto Mix" },
       { property: "og:description", content: "Indicadores, propostas e retornos da operação comercial." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
@@ -138,7 +138,7 @@ function SellerDashboard({ data }: { data: NonNullable<ReturnType<typeof useWork
     const discountAmt = Number(proposal.discount_amount || 0);
     const economyText = discountAmt > 0 ? `\n🎉 *Economia Aplicada:* ${brl.format(discountAmt)}` : "";
 
-    const text = `🎓 *Proposta Comercial — Nexo Comercial*
+    const text = `🎓 *Proposta Comercial — Instituto Mix de Profissões*
 Olá, *${studentName}*! Tudo bem?
 
 Conforme conversamos, preparei a sua condição comercial exclusiva para o curso:
@@ -556,7 +556,7 @@ Para confirmar sua matrícula agora, basta responder esta mensagem!`;
                       {student?.whatsapp && (
                         <a
                           href={`https://wa.me/55${student.whatsapp.replace(/\D/g, "")}?text=${encodeURIComponent(
-                            `Olá, ${student.full_name?.split(" ")[0] || ""}! Aqui é o ${firstName} da Nexo. Estou entrando em contato conforme combinamos para dar continuidade ao seu interesse no curso.`
+                            `Olá, ${student.full_name?.split(" ")[0] || ""}! Aqui é o ${firstName} do Instituto Mix. Estou entrando em contato conforme combinamos para dar continuidade ao seu interesse no curso.`
                           )}`}
                           target="_blank"
                           rel="noreferrer"
@@ -812,7 +812,7 @@ function ManagerDashboard({ data }: { data: NonNullable<ReturnType<typeof useWor
     const code = prefs["access_code"] || "Consulte a gerência";
     const pass = prefs["initial_password"] || "Definida no pré-cadastro";
 
-    const text = `🚀 *Acesso Liberado — Nexo Comercial*
+    const text = `🚀 *Acesso Liberado — Instituto Mix Comercial*
 Olá, *${seller.full_name}*! O seu acesso ao sistema de vendas foi pré-cadastrado pela gerência.
 
 🔗 *Link de Acesso:* ${window.location.origin}/auth
@@ -1070,7 +1070,7 @@ Ao fazer login você acessará diretamente o seu Painel de Vendas para conduzir 
                   <Button
                     className="w-full sm:w-auto font-bold gap-2 bg-emerald-600 hover:bg-emerald-700 text-white"
                     onClick={() => {
-                      const text = `🚀 *Acesso Liberado — Nexo Comercial*
+                      const text = `🚀 *Acesso Liberado — Instituto Mix Comercial*
 Olá, *${preRegisteredSuccess.fullName}*! O seu acesso ao sistema de vendas foi pré-cadastrado pela gerência.
 
 🔗 *Link de Acesso:* ${window.location.origin}/auth

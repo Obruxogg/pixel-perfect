@@ -9,10 +9,10 @@ import { Button } from "@/components/ui/button";
 export const Route = createFileRoute("/auth")({
   head: () => ({
     meta: [
-      { title: "Acesso Corporativo — Nexo Comercial" },
-      { name: "description", content: "Acesso interno e protegido para a equipe comercial e gestão." },
-      { property: "og:title", content: "Acesso Corporativo — Nexo Comercial" },
-      { property: "og:description", content: "Acesso interno e protegido para a equipe comercial e gestão." },
+      { title: "Acesso Corporativo — Instituto Mix Comercial" },
+      { name: "description", content: "Sistema interno comercial do Instituto Mix de Profissões." },
+      { property: "og:title", content: "Acesso Corporativo — Instituto Mix Comercial" },
+      { property: "og:description", content: "Sistema interno comercial do Instituto Mix de Profissões." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
     ],
@@ -85,37 +85,37 @@ function AuthPage() {
             <GraduationCap size={24} />
           </span>
           <div>
-            <span>Nexo Comercial</span>
-            <span className="block text-[11px] font-normal text-primary-foreground/70">Ambiente Operacional Interno</span>
+            <span className="font-extrabold text-xl tracking-tight block">Instituto Mix</span>
+            <span className="block text-[11px] font-medium text-primary-foreground/80 uppercase tracking-widest">Portal Comercial Interno</span>
           </div>
         </div>
 
         <div className="max-w-xl z-10 my-auto py-12">
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-background/15 px-3 py-1 text-xs font-semibold uppercase tracking-wider backdrop-blur-md text-primary-foreground/90 mb-5">
-            <ShieldCheck size={14} /> Sistema Restrito à Equipe
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-background/15 px-3.5 py-1 text-xs font-semibold uppercase tracking-wider backdrop-blur-md text-primary-foreground/90 mb-5 border border-white/10">
+            <ShieldCheck size={14} /> Sistema Corporativo Oficial
           </span>
           <h1 className="text-4xl xl:text-5xl font-extrabold leading-tight">
             Gestão Comercial, Simulações & Conversão de Matrículas.
           </h1>
-          <p className="mt-5 max-w-lg text-lg text-primary-foreground/80 leading-relaxed">
-            Painel exclusivo para consultores de vendas e coordenação comercial. Conduza cada oportunidade do primeiro contato ao fechamento.
+          <p className="mt-5 max-w-lg text-lg text-primary-foreground/85 leading-relaxed">
+            Ambiente exclusivo para consultores comerciais e coordenação das unidades do Instituto Mix de Profissões.
           </p>
 
           <div className="mt-8 grid grid-cols-2 gap-4 max-w-md pt-6 border-t border-primary-foreground/15">
-            <div className="rounded-lg bg-background/10 p-3.5 backdrop-blur-xs">
-              <span className="text-xs font-semibold text-primary-foreground/75 block">Vendedores</span>
-              <strong className="text-sm font-medium mt-1 block">Acesso direto ao seu painel pessoal de vendas e propostas</strong>
+            <div className="rounded-xl bg-background/10 p-4 backdrop-blur-xs border border-white/10">
+              <span className="text-xs font-bold text-primary-foreground/80 block uppercase tracking-wider">Vendedores</span>
+              <strong className="text-sm font-semibold mt-1 block leading-snug">Painel pessoal de metas, simulações e propostas</strong>
             </div>
-            <div className="rounded-lg bg-background/10 p-3.5 backdrop-blur-xs">
-              <span className="text-xs font-semibold text-primary-foreground/75 block">Gerência</span>
-              <strong className="text-sm font-medium mt-1 block">Pré-cadastro de acessos e monitoramento geral de carteira</strong>
+            <div className="rounded-lg bg-background/10 p-4 backdrop-blur-xs border border-white/10">
+              <span className="text-xs font-bold text-primary-foreground/80 block uppercase tracking-wider">Gestão</span>
+              <strong className="text-sm font-semibold mt-1 block leading-snug">Pré-cadastro de equipe e acompanhamento geral</strong>
             </div>
           </div>
         </div>
 
         <div className="z-10 flex items-center justify-between text-xs text-primary-foreground/60 border-t border-primary-foreground/10 pt-4">
-          <span>Nexo Comercial © {new Date().getFullYear()}</span>
-          <span>Ambiente corporativo protegido por RLS</span>
+          <span>Instituto Mix de Profissões © {new Date().getFullYear()}</span>
+          <span>Acesso Interno Protegido</span>
         </div>
       </section>
 
@@ -128,8 +128,8 @@ function AuthPage() {
               <GraduationCap size={20} />
             </span>
             <div>
-              <strong className="block text-base leading-tight font-bold">Nexo Comercial</strong>
-              <span className="text-xs text-muted-foreground">Área da Equipe</span>
+              <strong className="block text-base leading-tight font-extrabold">Instituto Mix</strong>
+              <span className="text-xs font-semibold text-primary">Portal Comercial</span>
             </div>
           </div>
 

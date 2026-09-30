@@ -27,10 +27,10 @@ import { moveStudent, transferStudents, getStudentTimeline } from "@/lib/crm.fun
 export const Route = createFileRoute("/_authenticated/crm")({
   head: () => ({
     meta: [
-      { title: "CRM Comercial — Nexo Comercial" },
-      { name: "description", content: "Acompanhe cada contato no funil comercial com histórico e prazos." },
-      { property: "og:title", content: "CRM Comercial — Nexo Comercial" },
-      { property: "og:description", content: "Acompanhe cada contato no funil comercial com histórico e prazos." },
+      { title: "CRM Comercial — Instituto Mix" },
+      { name: "description", content: "Acompanhe cada contato no funil comercial do Instituto Mix de Profissões." },
+      { property: "og:title", content: "CRM Comercial — Instituto Mix" },
+      { property: "og:description", content: "Acompanhe cada contato no funil comercial do Instituto Mix de Profissões." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
     ],

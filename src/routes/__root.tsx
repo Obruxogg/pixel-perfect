@@ -79,9 +79,9 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Nexo Comercial" },
-      { name: "description", content: "Gestão comercial para cursos profissionalizantes." },
-      { name: "author", content: "Nexo Comercial" },
+      { title: "Instituto Mix — Portal Comercial" },
+      { name: "description", content: "Gestão comercial e matrículas para o Instituto Mix de Profissões." },
+      { name: "author", content: "Instituto Mix de Profissões" },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
       { name: "twitter:site", content: "@Lovable" },

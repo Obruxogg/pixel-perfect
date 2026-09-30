@@ -29,10 +29,10 @@ import {
 export const Route = createFileRoute("/_authenticated/simulacao")({
   head: () => ({
     meta: [
-      { title: "Nova Proposta — Nexo Comercial" },
-      { name: "description", content: "Monte e apresente condições comerciais em tempo real." },
-      { property: "og:title", content: "Nova Proposta — Nexo Comercial" },
-      { property: "og:description", content: "Monte e apresente condições comerciais em tempo real." },
+      { title: "Nova Proposta — Instituto Mix" },
+      { name: "description", content: "Monte e apresente condições comerciais em tempo real no Instituto Mix de Profissões." },
+      { property: "og:title", content: "Nova Proposta — Instituto Mix" },
+      { property: "og:description", content: "Monte e apresente condições comerciais em tempo real no Instituto Mix de Profissões." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
     ],
@@ -264,8 +264,8 @@ function SimulationPage() {
               <GraduationCap size={24} />
             </span>
             <div>
-              <strong className="block text-lg font-bold">Nexo Comercial</strong>
-              <span className="text-xs text-muted-foreground uppercase tracking-widest font-semibold">
+              <strong className="block text-lg font-extrabold text-foreground tracking-tight">Instituto Mix</strong>
+              <span className="text-xs text-primary uppercase tracking-widest font-bold block">
                 Proposta Comercial Oficial
               </span>
             </div>

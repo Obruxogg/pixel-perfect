@@ -31,10 +31,10 @@ import { brl, formatPhone, useRefreshWorkspace, useWorkspace } from "@/lib/use-w
 export const Route = createFileRoute("/_authenticated/configuracoes")({
   head: () => ({
     meta: [
-      { title: "Configurações Comerciais — Nexo Comercial" },
-      { name: "description", content: "Gerencie equipe, catálogo, condições comerciais e gatilhos de venda." },
-      { property: "og:title", content: "Configurações Comerciais — Nexo Comercial" },
-      { property: "og:description", content: "Gerencie equipe, catálogo, condições comerciais e gatilhos de venda." },
+      { title: "Configurações Comerciais — Instituto Mix" },
+      { name: "description", content: "Gerencie equipe, catálogo, condições comerciais e gatilhos de venda do Instituto Mix de Profissões." },
+      { property: "og:title", content: "Configurações Comerciais — Instituto Mix" },
+      { property: "og:description", content: "Gerencie equipe, catálogo, condições comerciais e gatilhos de venda do Instituto Mix de Profissões." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
     ],
@@ -734,7 +734,7 @@ function SettingsPage() {
                           className="text-xs font-semibold gap-1"
                           onClick={() => {
                             const prefs = (s.preferences as Record<string, any>) || {};
-                            const text = `🚀 *Acesso Liberado — Nexo Comercial*\nOlá, *${s.full_name}*! O seu acesso ao sistema de vendas foi pré-cadastrado pela gerência.\n\n🔗 *Link de Acesso:* ${window.location.origin}/auth\n📧 *E-mail:* ${prefs["email"] || s.phone || "Consulte a gerência"}\n🏷️ *Código de Vendedor:* *${prefs["access_code"] || "Consulte a gerência"}*\n🔑 *Senha Inicial:* *${prefs["initial_password"] || "Informada pela gerência"}*\n\nFaça login para acessar o seu Painel de Vendas!`;
+                            const text = `🚀 *Acesso Liberado — Instituto Mix Comercial*\nOlá, *${s.full_name}*! O seu acesso ao sistema de vendas foi pré-cadastrado pela gerência.\n\n🔗 *Link de Acesso:* ${window.location.origin}/auth\n📧 *E-mail:* ${prefs["email"] || s.phone || "Consulte a gerência"}\n🏷️ *Código de Vendedor:* *${prefs["access_code"] || "Consulte a gerência"}*\n🔑 *Senha Inicial:* *${prefs["initial_password"] || "Informada pela gerência"}*\n\nFaça login para acessar o seu Painel de Vendas!`;
                             navigator.clipboard.writeText(text);
                             toast.success("Credenciais copiadas para WhatsApp!");
                           }}
@@ -1001,7 +1001,7 @@ function SettingsPage() {
                                 variant="outline"
                                 className="text-xs font-semibold gap-1"
                                 onClick={() => {
-                                  const text = `🎯 *Acesso Gerência — Nexo Comercial*\nOlá, *${s.full_name}*! Seu acesso de gerente foi cadastrado.\n\n🔗 *Link de Acesso:* ${window.location.origin}/auth\n📧 *E-mail:* ${prefs["email"] || "—"}\n🔑 *Senha Inicial:* *${prefs["initial_password"] || "Informada pelo administrador"}*\n\nCom seu acesso de gerente, você pode pré-cadastrar vendedores e monitorar toda a equipe!`;
+                                  const text = `🎯 *Acesso Gerência — Instituto Mix Comercial*\nOlá, *${s.full_name}*! Seu acesso de gerente foi cadastrado.\n\n🔗 *Link de Acesso:* ${window.location.origin}/auth\n📧 *E-mail:* ${prefs["email"] || "—"}\n🔑 *Senha Inicial:* *${prefs["initial_password"] || "Informada pelo administrador"}*\n\nCom seu acesso de gerente, você pode pré-cadastrar vendedores e monitorar toda a equipe!`;
                                   navigator.clipboard.writeText(text);
                                   toast.success("Credenciais do gerente copiadas!");
                                 }}
