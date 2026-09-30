@@ -18,7 +18,11 @@ import {
   ToggleLeft,
   ToggleRight,
   Handshake,
+  Copy,
+  KeyRound,
+  ShieldCheck,
 } from "lucide-react";
+import { toast } from "sonner";
 import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
 import { saveCatalogItem, manageSeller, transferStudents } from "@/lib/crm.functions";
@@ -65,6 +69,9 @@ function SettingsPage() {
   // Seller Management Form (Requirement 4)
   const [showAddSellerModal, setShowAddSellerModal] = useState(false);
   const [newSellerName, setNewSellerName] = useState("");
+  const [newSellerEmail, setNewSellerEmail] = useState("");
+  const [newSellerPassword, setNewSellerPassword] = useState("");
+  const [newSellerCode, setNewSellerCode] = useState("");
   const [newSellerPhone, setNewSellerPhone] = useState("");
   const [newSellerTitle, setNewSellerTitle] = useState("Vendedor Comercial");
   const [newSellerTeamId, setNewSellerTeamId] = useState("");
@@ -131,22 +138,33 @@ function SettingsPage() {
     setError("");
     setMessage("");
     try {
+      const code = newSellerCode.trim() || `VD-${Math.floor(1000 + Math.random() * 9000)}`;
+      const pass = newSellerPassword.trim() || `Vendedor@${Math.floor(1000 + Math.random() * 9000)}`;
+
       await sellerAction({
         data: {
           action: "create",
           fullName: newSellerName,
+          email: newSellerEmail,
+          password: pass,
+          accessCode: code,
           phone: newSellerPhone,
           jobTitle: newSellerTitle,
           teamId: newSellerTeamId || null,
         },
       });
       await refresh();
-      setMessage("Vendedor cadastrado com sucesso!");
+      toast.success("Vendedor pré-cadastrado com sucesso!");
+      setMessage("Vendedor pré-cadastrado com sucesso!");
       setShowAddSellerModal(false);
       setNewSellerName("");
+      setNewSellerEmail("");
+      setNewSellerPassword("");
+      setNewSellerCode("");
       setNewSellerPhone("");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro ao cadastrar vendedor.");
+      toast.error(err instanceof Error ? err.message : "Erro ao cadastrar vendedor.");
     } finally {
       setBusy(false);
     }
@@ -652,6 +670,22 @@ function SettingsPage() {
                     <td className="font-bold text-emerald-600">{s.salesCount}</td>
                     <td>
                       <div className="flex items-center gap-2">
+                        {/* Copy WhatsApp credentials */}
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="text-xs font-semibold gap-1"
+                          onClick={() => {
+                            const prefs = (s.preferences as Record<string, any>) || {};
+                            const text = `🚀 *Acesso Liberado — Nexo Comercial*\nOlá, *${s.full_name}*! O seu acesso ao sistema de vendas foi pré-cadastrado pela gerência.\n\n🔗 *Link de Acesso:* ${window.location.origin}/auth\n📧 *E-mail:* ${prefs.email || s.phone || "Consulte a gerência"}\n🏷️ *Código de Vendedor:* *${prefs.access_code || "Consulte a gerência"}*\n🔑 *Senha Inicial:* *${prefs.initial_password || "Informada pela gerência"}*\n\nFaça login para acessar o seu Painel de Vendas!`;
+                            navigator.clipboard.writeText(text);
+                            toast.success("Credenciais copiadas para WhatsApp!");
+                          }}
+                          title="Copiar dados de acesso para WhatsApp"
+                        >
+                          <Copy size={12} /> Copiar Acesso
+                        </Button>
+
                         {/* Toggle active / inactive */}
                         <Button
                           size="sm"
@@ -704,15 +738,52 @@ function SettingsPage() {
                     />
                   </label>
 
-                  <label className="block text-sm font-medium">
-                    Telefone / WhatsApp
-                    <input
-                      className="input-field mt-1"
-                      value={newSellerPhone}
-                      onChange={(e) => setNewSellerPhone(e.target.value)}
-                      placeholder="(00) 00000-0000"
-                    />
-                  </label>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <label className="block text-sm font-medium">
+                      E-mail Corporativo *
+                      <input
+                        type="email"
+                        className="input-field mt-1"
+                        required
+                        value={newSellerEmail}
+                        onChange={(e) => setNewSellerEmail(e.target.value)}
+                        placeholder="vendedor@empresa.com"
+                      />
+                    </label>
+
+                    <label className="block text-sm font-medium">
+                      Telefone / WhatsApp
+                      <input
+                        className="input-field mt-1"
+                        value={newSellerPhone}
+                        onChange={(e) => setNewSellerPhone(e.target.value)}
+                        placeholder="(00) 00000-0000"
+                      />
+                    </label>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <label className="block text-sm font-medium">
+                      Senha Inicial *
+                      <input
+                        className="input-field mt-1 font-mono"
+                        required
+                        value={newSellerPassword}
+                        onChange={(e) => setNewSellerPassword(e.target.value)}
+                        placeholder="ex: Vend@2026"
+                      />
+                    </label>
+
+                    <label className="block text-sm font-medium">
+                      Código de Acesso
+                      <input
+                        className="input-field mt-1 font-mono uppercase"
+                        value={newSellerCode}
+                        onChange={(e) => setNewSellerCode(e.target.value)}
+                        placeholder="ex: VD-1024"
+                      />
+                    </label>
+                  </div>
 
                   <label className="block text-sm font-medium">
                     Cargo

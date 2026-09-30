@@ -138,12 +138,14 @@ export const getWorkspace = createServerFn({ method: "GET" })
     let proposalsQuery = db.from("proposals").select("*").order("created_at", { ascending: false });
     let followupsQuery = db.from("followups").select("*").order("due_at");
     let interactionsQuery = db.from("student_interactions").select("*").order("created_at", { ascending: false }).limit(200);
+    let salesQuery = (db as any).from("sales").select("*").order("created_at", { ascending: false });
 
-    // Filter by seller ownership if user is seller
+    // Filter by seller ownership if user is seller - strict isolation
     if (isSeller) {
       studentsQuery = studentsQuery.eq("owner_id", context.userId);
       proposalsQuery = proposalsQuery.eq("seller_id", context.userId);
       followupsQuery = followupsQuery.eq("seller_id", context.userId);
+      salesQuery = salesQuery.eq("seller_id", context.userId);
     }
 
     const [studentsRes, proposalsRes, followupsRes, interactionsRes, triggersRes, salesRes] = await Promise.all([
@@ -152,32 +154,34 @@ export const getWorkspace = createServerFn({ method: "GET" })
       followupsQuery,
       interactionsQuery,
       (db as any).from("commercial_triggers").select("*").order("sort_order").then((res: any) => (res.error ? { data: null } : res)),
-      (db as any).from("sales").select("*").order("created_at", { ascending: false }).then((res: any) => (res.error ? { data: null } : res)),
+      salesQuery.then((res: any) => (res.error ? { data: null } : res)),
     ]);
 
-    // Build sellers list for manager & admin
-    const allProfiles = allProfilesRes.data ?? [];
-    const allRoles = allRolesRes.data ?? [];
+    // Build sellers list for manager & admin (sellers do not access other sellers' info)
+    const allProfiles = isSeller ? [] : (allProfilesRes.data ?? []);
+    const allRoles = isSeller ? [] : (allRolesRes.data ?? []);
     const allStudents = studentsRes.data ?? [];
     const allProposals = proposalsRes.data ?? [];
     const allFollowups = followupsRes.data ?? [];
 
-    const sellers = allProfiles.map((p) => {
-      const pRole = allRoles.find((r) => r.user_id === p.id)?.role ?? "seller";
-      const sellerStudents = allStudents.filter((s) => s.owner_id === p.id);
-      const sellerProposals = allProposals.filter((pr) => pr.seller_id === p.id);
-      const sellerSales = sellerProposals.filter((pr) => pr.status === "approved");
-      const sellerFollowups = allFollowups.filter((f) => f.seller_id === p.id && f.status === "pending");
+    const sellers = isSeller
+      ? []
+      : allProfiles.map((p) => {
+          const pRole = allRoles.find((r) => r.user_id === p.id)?.role ?? "seller";
+          const sellerStudents = allStudents.filter((s) => s.owner_id === p.id);
+          const sellerProposals = allProposals.filter((pr) => pr.seller_id === p.id);
+          const sellerSales = sellerProposals.filter((pr) => pr.status === "approved");
+          const sellerFollowups = allFollowups.filter((f) => f.seller_id === p.id && f.status === "pending");
 
-      return {
-        ...p,
-        role: pRole,
-        contactsCount: sellerStudents.length,
-        proposalsCount: sellerProposals.length,
-        salesCount: sellerSales.length,
-        followupsCount: sellerFollowups.length,
-      };
-    });
+          return {
+            ...p,
+            role: pRole,
+            contactsCount: sellerStudents.length,
+            proposalsCount: sellerProposals.length,
+            salesCount: sellerSales.length,
+            followupsCount: sellerFollowups.length,
+          };
+        });
 
     const rawTriggers = (triggersRes.data && triggersRes.data.length > 0) ? (triggersRes.data as unknown as typeof DEFAULT_COMMERCIAL_TRIGGERS) : DEFAULT_COMMERCIAL_TRIGGERS;
     const triggers = rawTriggers.map((t) => ({
@@ -685,15 +689,17 @@ export const transferStudents = createServerFn({ method: "POST" })
     return { ok: true, count: data.studentIds.length };
   });
 
-// Requirement 4: Gerenciamento de Vendedores
+// Requirement 4: Gerenciamento e Pré-Cadastro de Vendedores
 export const manageSeller = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: unknown) =>
     z.object({
-      action: z.enum(["create", "update", "toggle_status"]),
+      action: z.enum(["create", "update", "toggle_status", "reset_password"]),
       sellerId: z.string().uuid().optional(),
       fullName: z.string().min(2).max(120).optional(),
       email: z.string().email().optional(),
+      password: z.string().min(6).optional(),
+      accessCode: z.string().max(30).optional(),
       phone: z.string().max(30).optional(),
       jobTitle: z.string().max(80).optional(),
       teamId: z.string().uuid().nullable().optional(),
@@ -712,31 +718,143 @@ export const manageSeller = createServerFn({ method: "POST" })
     }
 
     if (data.action === "create") {
-      if (!data.fullName) throw new Error("Nome é obrigatório.");
-      const newId = crypto.randomUUID();
+      if (!data.fullName) throw new Error("Nome completo é obrigatório.");
+      if (!data.email) throw new Error("E-mail corporativo é obrigatório para o pré-cadastro.");
+      const initialPassword = data.password?.trim() || `Vendedor@${Math.floor(1000 + Math.random() * 9000)}`;
+      const accessCode = data.accessCode?.trim().toUpperCase() || `VD-${Math.floor(1000 + Math.random() * 9000)}`;
+
+      let authUserId: string | null = null;
+
+      // 1. Try creating Auth user via Admin API if service role is available
+      if (adminClient?.auth?.admin) {
+        try {
+          const { data: authRes, error: authErr } = await adminClient.auth.admin.createUser({
+            email: data.email.trim(),
+            password: initialPassword,
+            email_confirm: true,
+            user_metadata: { full_name: data.fullName.trim(), access_code: accessCode },
+          });
+
+          if (authErr) {
+            if (authErr.message.toLowerCase().includes("already") || (authErr as any).status === 422) {
+              const { data: listRes } = await adminClient.auth.admin.listUsers();
+              const existing = listRes?.users?.find((u) => u.email?.toLowerCase() === data.email!.toLowerCase().trim());
+              if (existing) {
+                authUserId = existing.id;
+                await adminClient.auth.admin.updateUserById(existing.id, { password: initialPassword });
+              }
+            } else {
+              console.warn("Supabase admin createUser warning:", authErr.message);
+            }
+          } else if (authRes?.user) {
+            authUserId = authRes.user.id;
+          }
+        } catch (e: any) {
+          console.warn("Failed creating auth user with adminClient:", e?.message);
+        }
+      }
+
+      // 2. If not created via admin, create user with public client signUp
+      if (!authUserId) {
+        try {
+          const SUPABASE_URL = process.env['SUPABASE_URL'] || process.env['VITE_SUPABASE_URL'] || 'https://xkyrperygblypbnhffyi.supabase.co';
+          const SUPABASE_KEY = process.env['SUPABASE_PUBLISHABLE_KEY'] || process.env['VITE_SUPABASE_PUBLISHABLE_KEY'] || '';
+          const { createClient } = await import('@supabase/supabase-js');
+          const tempClient = createClient(SUPABASE_URL, SUPABASE_KEY, { auth: { persistSession: false, autoRefreshToken: false } });
+          const { data: signUpData, error: signUpErr } = await tempClient.auth.signUp({
+            email: data.email.trim(),
+            password: initialPassword,
+            options: { data: { full_name: data.fullName.trim(), access_code: accessCode } },
+          });
+          if (signUpData?.user) {
+            authUserId = signUpData.user.id;
+          } else if (signUpErr && !signUpErr.message.toLowerCase().includes("already")) {
+            console.warn("Client signUp warning:", signUpErr.message);
+          }
+        } catch (e: any) {
+          console.warn("Client signUp error:", e?.message);
+        }
+      }
+
+      // Fallback ID if auth user couldn't be registered directly
+      if (!authUserId) {
+        authUserId = crypto.randomUUID();
+      }
+
+      const preferences = {
+        pre_registered: true,
+        email: data.email.trim(),
+        access_code: accessCode,
+        initial_password: initialPassword,
+        registered_by: context.userId,
+        registered_at: new Date().toISOString(),
+      };
 
       const { data: newProfile, error: profErr } = await db
         .from("profiles")
-        .insert({
-          id: newId,
-          full_name: data.fullName,
-          phone: data.phone || null,
-          job_title: data.jobTitle || "Vendedor",
-          team_id: data.teamId || null,
-          manager_id: context.userId,
-          status: "active",
-        })
+        .upsert(
+          {
+            id: authUserId,
+            full_name: data.fullName.trim(),
+            phone: data.phone?.trim() || null,
+            job_title: data.jobTitle?.trim() || "Vendedor Comercial",
+            team_id: data.teamId || null,
+            manager_id: context.userId,
+            status: "active",
+            preferences,
+          },
+          { onConflict: "id" }
+        )
         .select()
         .single();
 
-      if (profErr) throw new Error(profErr.message);
+      if (profErr) throw new Error(`Erro ao salvar perfil do vendedor: ${profErr.message}`);
 
-      await db.from("user_roles").insert({
-        user_id: newId,
-        role: "seller",
-      });
+      // Ensure seller role
+      await db.from("user_roles").upsert(
+        {
+          user_id: authUserId,
+          role: "seller",
+        },
+        { onConflict: "user_id,role" }
+      );
 
-      return { ok: true, seller: newProfile };
+      return {
+        ok: true,
+        seller: newProfile,
+        accessCode,
+        email: data.email.trim(),
+        password: initialPassword,
+      };
+    }
+
+    if (data.action === "reset_password" && data.sellerId) {
+      if (!data.password) throw new Error("Nova senha é obrigatória.");
+      const newPassword = data.password.trim();
+
+      // Update in Supabase Auth if admin client is available
+      if (adminClient?.auth?.admin) {
+        try {
+          await adminClient.auth.admin.updateUserById(data.sellerId, { password: newPassword });
+        } catch (e: any) {
+          console.warn("Failed updating user password in Supabase Auth:", e?.message);
+        }
+      }
+
+      const { data: currentProf } = await db.from("profiles").select("preferences").eq("id", data.sellerId).single();
+      const prefs = ((currentProf?.preferences as Record<string, any>) || {});
+      prefs.initial_password = newPassword;
+      prefs.password_updated_at = new Date().toISOString();
+
+      const { data: updated, error } = await db
+        .from("profiles")
+        .update({ preferences: prefs })
+        .eq("id", data.sellerId)
+        .select()
+        .single();
+
+      if (error) throw new Error(error.message);
+      return { ok: true, seller: updated, newPassword };
     }
 
     if (data.action === "update" && data.sellerId) {
@@ -773,6 +891,133 @@ export const manageSeller = createServerFn({ method: "POST" })
     }
 
     throw new Error("Ação inválida.");
+  });
+
+// Resolver login por E-mail ou Código de Acesso do Vendedor (ex: VD-1024)
+export const resolveSellerLogin = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) =>
+    z.object({
+      identifier: z.string().min(1).max(120),
+    }).parse(input)
+  )
+  .handler(async ({ data }) => {
+    const clean = data.identifier.trim();
+    if (clean.includes("@")) {
+      return { email: clean };
+    }
+
+    // Lookup in profiles table by access_code in preferences or phone
+    const SUPABASE_URL = process.env['SUPABASE_URL'] || process.env['VITE_SUPABASE_URL'] || 'https://xkyrperygblypbnhffyi.supabase.co';
+    const SUPABASE_KEY = process.env['SUPABASE_PUBLISHABLE_KEY'] || process.env['VITE_SUPABASE_PUBLISHABLE_KEY'] || '';
+    const { createClient } = await import('@supabase/supabase-js');
+    const adminClient = await getAdminClient();
+    const client = adminClient || createClient(SUPABASE_URL, SUPABASE_KEY);
+
+    const { data: profiles } = await client
+      .from("profiles")
+      .select("preferences, full_name, phone");
+
+    const match = (profiles || []).find((p: any) => {
+      const prefs = p.preferences as Record<string, any> | undefined;
+      return (
+        prefs?.access_code?.toLowerCase() === clean.toLowerCase() ||
+        prefs?.email?.toLowerCase() === clean.toLowerCase() ||
+        p.phone?.replace(/\D/g, "") === clean.replace(/\D/g, "")
+      );
+    });
+
+    if (match) {
+      const email = (match.preferences as any)?.email;
+      return { email: email || null, fullName: match.full_name };
+    }
+
+    return { email: null };
+  });
+
+// Cadastro rápido de contato pelo Vendedor direto no Dashboard
+export const createQuickStudent = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) =>
+    z.object({
+      fullName: z.string().min(2).max(120),
+      whatsapp: z.string().min(8).max(30),
+      email: z.string().email().optional().or(z.literal("")),
+      notes: z.string().max(1000).optional(),
+      source: z.string().max(80).optional(),
+    }).parse(input)
+  )
+  .handler(async ({ data, context }) => {
+    const db = context.supabase;
+
+    // Get default initial CRM stage
+    const { data: firstStage } = await db.from("crm_stages").select("id").order("sort_order").limit(1).maybeSingle();
+    const stageId = firstStage?.id || null;
+
+    const { data: student, error } = await db
+      .from("students")
+      .insert({
+        full_name: data.fullName.trim(),
+        whatsapp: data.whatsapp.trim(),
+        email: data.email?.trim() || null,
+        notes: data.notes?.trim() || null,
+        source: data.source?.trim() || "Dashboard Vendedor",
+        owner_id: context.userId,
+        crm_stage_id: stageId,
+      })
+      .select()
+      .single();
+
+    if (error) {
+      if (error.message.includes("students_whatsapp_key") || error.code === "23505") {
+        throw new Error("Já existe um contato cadastrado com este WhatsApp na base.");
+      }
+      throw new Error(error.message);
+    }
+
+    await db.from("student_interactions").insert({
+      student_id: student.id,
+      user_id: context.userId,
+      kind: "lead_created",
+      notes: "Contato cadastrado rapidamente via Dashboard do Vendedor",
+    });
+
+    return { ok: true, student };
+  });
+
+// Conclusão rápida de Retorno Comercial (Follow-up) pelo Vendedor
+export const completeFollowup = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) =>
+    z.object({
+      followupId: z.string().uuid(),
+      notes: z.string().max(500).optional(),
+    }).parse(input)
+  )
+  .handler(async ({ data, context }) => {
+    const db = context.supabase;
+    const { data: updated, error } = await db
+      .from("followups")
+      .update({
+        status: "completed",
+        completed_at: new Date().toISOString(),
+        notes: data.notes?.trim() || undefined,
+      })
+      .eq("id", data.followupId)
+      .select()
+      .single();
+
+    if (error) throw new Error(error.message);
+
+    if (updated) {
+      await db.from("student_interactions").insert({
+        student_id: updated.student_id,
+        user_id: context.userId,
+        kind: "followup_completed",
+        notes: `Retorno comercial concluído: ${data.notes || "Contato realizado com sucesso."}`,
+      });
+    }
+
+    return { ok: true, followup: updated };
   });
 
 export const moveStudent = createServerFn({ method: "POST" })
