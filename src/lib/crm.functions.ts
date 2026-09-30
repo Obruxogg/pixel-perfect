@@ -709,7 +709,6 @@ export const manageSeller = createServerFn({ method: "POST" })
   )
   .handler(async ({ data, context }) => {
     const adminClient = await getAdminClient();
-    const db = adminClient || context.supabase;
 
     const { data: isAdmin } = await context.supabase.rpc("has_role", { _user_id: context.userId, _role: "admin" });
     const { data: isManager } = await context.supabase.rpc("has_role", { _user_id: context.userId, _role: "manager" });
@@ -717,6 +716,12 @@ export const manageSeller = createServerFn({ method: "POST" })
     if (!isAdmin && !isManager) {
       throw new Error("Somente gerentes e administradores podem gerenciar vendedores.");
     }
+
+    if (!adminClient) {
+      throw new Error("O serviço de cadastro de usuários está indisponível. Tente novamente em instantes.");
+    }
+
+    const db = adminClient;
 
     if (data.action === "create") {
       if (!data.fullName) throw new Error("Nome completo é obrigatório.");
@@ -729,61 +734,30 @@ export const manageSeller = createServerFn({ method: "POST" })
 
       let authUserId: string | null = null;
 
-      // 1. Try creating Auth user via Admin API if service role is available
-      if (adminClient?.auth?.admin) {
-        try {
-          const { data: authRes, error: authErr } = await adminClient.auth.admin.createUser({
-            email: data.email.trim(),
-            password: initialPassword,
-            email_confirm: true,
-            user_metadata: { full_name: data.fullName.trim(), access_code: accessCode },
-          });
+      const { data: authRes, error: authErr } = await adminClient.auth.admin.createUser({
+        email: data.email.trim(),
+        password: initialPassword,
+        email_confirm: true,
+        user_metadata: { full_name: data.fullName.trim(), access_code: accessCode },
+      });
 
-          if (authErr) {
-            if (authErr.message.toLowerCase().includes("already") || (authErr as any).status === 422) {
-              const { data: listRes } = await adminClient.auth.admin.listUsers();
-              const existing = listRes?.users?.find((u) => u.email?.toLowerCase() === data.email!.toLowerCase().trim());
-              if (existing) {
-                authUserId = existing.id;
-                await adminClient.auth.admin.updateUserById(existing.id, { password: initialPassword });
-              }
-            } else {
-              console.warn("Supabase admin createUser warning:", authErr.message);
-            }
-          } else if (authRes?.user) {
-            authUserId = authRes.user.id;
-          }
-        } catch (e: any) {
-          console.warn("Failed creating auth user with adminClient:", e?.message);
+      if (authErr) {
+        if (authErr.message.toLowerCase().includes("already") || authErr.status === 422) {
+          const { data: listRes, error: listErr } = await adminClient.auth.admin.listUsers();
+          if (listErr) throw new Error(`Erro ao consultar usuários: ${listErr.message}`);
+          const existing = listRes.users.find((user) => user.email?.toLowerCase() === data.email?.toLowerCase().trim());
+          if (!existing) throw new Error("Já existe uma conta com este e-mail, mas ela não pôde ser localizada.");
+          authUserId = existing.id;
+          const { error: passwordErr } = await adminClient.auth.admin.updateUserById(existing.id, { password: initialPassword });
+          if (passwordErr) throw new Error(`Erro ao atualizar o acesso existente: ${passwordErr.message}`);
+        } else {
+          throw new Error(`Erro ao criar o acesso do vendedor: ${authErr.message}`);
         }
+      } else {
+        authUserId = authRes.user?.id ?? null;
       }
 
-      // 2. If not created via admin, create user with public client signUp
-      if (!authUserId) {
-        try {
-          const SUPABASE_URL = process.env['SUPABASE_URL'] || process.env['VITE_SUPABASE_URL'] || 'https://xkyrperygblypbnhffyi.supabase.co';
-          const SUPABASE_KEY = process.env['SUPABASE_PUBLISHABLE_KEY'] || process.env['VITE_SUPABASE_PUBLISHABLE_KEY'] || '';
-          const { createClient } = await import('@supabase/supabase-js');
-          const tempClient = createClient(SUPABASE_URL, SUPABASE_KEY, { auth: { persistSession: false, autoRefreshToken: false } });
-          const { data: signUpData, error: signUpErr } = await tempClient.auth.signUp({
-            email: data.email.trim(),
-            password: initialPassword,
-            options: { data: { full_name: data.fullName.trim(), access_code: accessCode } },
-          });
-          if (signUpData?.user) {
-            authUserId = signUpData.user.id;
-          } else if (signUpErr && !signUpErr.message.toLowerCase().includes("already")) {
-            console.warn("Client signUp warning:", signUpErr.message);
-          }
-        } catch (e: any) {
-          console.warn("Client signUp error:", e?.message);
-        }
-      }
-
-      // Fallback ID if auth user couldn't be registered directly
-      if (!authUserId) {
-        authUserId = crypto.randomUUID();
-      }
+      if (!authUserId) throw new Error("O acesso do vendedor não retornou um identificador válido.");
 
       const preferences = {
         pre_registered: true,
@@ -815,13 +789,14 @@ export const manageSeller = createServerFn({ method: "POST" })
       if (profErr) throw new Error(`Erro ao salvar perfil do vendedor: ${profErr.message}`);
 
       // Ensure correct role
-      await db.from("user_roles").upsert(
+      const { error: roleErr } = await db.from("user_roles").upsert(
         {
           user_id: authUserId,
           role: targetRole,
         },
         { onConflict: "user_id,role" }
       );
+      if (roleErr) throw new Error(`Erro ao definir o perfil de acesso: ${roleErr.message}`);
 
       return {
         ok: true,
@@ -836,14 +811,8 @@ export const manageSeller = createServerFn({ method: "POST" })
       if (!data.password) throw new Error("Nova senha é obrigatória.");
       const newPassword = data.password.trim();
 
-      // Update in Supabase Auth if admin client is available
-      if (adminClient?.auth?.admin) {
-        try {
-          await adminClient.auth.admin.updateUserById(data.sellerId, { password: newPassword });
-        } catch (e: any) {
-          console.warn("Failed updating user password in Supabase Auth:", e?.message);
-        }
-      }
+      const { error: passwordErr } = await adminClient.auth.admin.updateUserById(data.sellerId, { password: newPassword });
+      if (passwordErr) throw new Error(`Erro ao redefinir a senha: ${passwordErr.message}`);
 
       const { data: currentProf } = await db.from("profiles").select("preferences").eq("id", data.sellerId).single();
       const prefs = ((currentProf?.preferences as Record<string, any>) || {});
