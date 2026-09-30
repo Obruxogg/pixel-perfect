@@ -51,7 +51,7 @@ function SettingsPage() {
   const navigate = useNavigate();
 
   // Active Tab
-  const [activeTab, setActiveTab] = useState<"team" | "conditions" | "triggers" | "courses" | "discounts" | "crm">("team");
+  const [activeTab, setActiveTab] = useState<"team" | "managers" | "conditions" | "triggers" | "courses" | "discounts" | "crm">("team");
 
   // Condition Form
   const [condCourseId, setCondCourseId] = useState("");
@@ -75,6 +75,14 @@ function SettingsPage() {
   const [newSellerPhone, setNewSellerPhone] = useState("");
   const [newSellerTitle, setNewSellerTitle] = useState("Vendedor Comercial");
   const [newSellerTeamId, setNewSellerTeamId] = useState("");
+
+  // Manager Management Form
+  const [showAddManagerModal, setShowAddManagerModal] = useState(false);
+  const [newManagerName, setNewManagerName] = useState("");
+  const [newManagerEmail, setNewManagerEmail] = useState("");
+  const [newManagerPassword, setNewManagerPassword] = useState("");
+  const [newManagerPhone, setNewManagerPhone] = useState("");
+  const [newManagerTitle, setNewManagerTitle] = useState("Gerente Comercial");
 
   // Transfer Portfolio Modal (Requirement 27)
   const [portfolioFromSellerId, setPortfolioFromSellerId] = useState<string | null>(null);
@@ -151,6 +159,7 @@ function SettingsPage() {
           phone: newSellerPhone,
           jobTitle: newSellerTitle,
           teamId: newSellerTeamId || null,
+          role: "seller",
         },
       });
       await refresh();
@@ -165,6 +174,43 @@ function SettingsPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro ao cadastrar vendedor.");
       toast.error(err instanceof Error ? err.message : "Erro ao cadastrar vendedor.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleAddManagerSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError("");
+    setMessage("");
+    try {
+      const pass = newManagerPassword.trim() || `Gerente@${Math.floor(1000 + Math.random() * 9000)}`;
+
+      await sellerAction({
+        data: {
+          action: "create",
+          fullName: newManagerName,
+          email: newManagerEmail,
+          password: pass,
+          phone: newManagerPhone,
+          jobTitle: newManagerTitle,
+          teamId: null,
+          role: "manager",
+        },
+      });
+      await refresh();
+      toast.success("Gerente cadastrado com sucesso!");
+      setMessage("Gerente cadastrado com sucesso!");
+      setShowAddManagerModal(false);
+      setNewManagerName("");
+      setNewManagerEmail("");
+      setNewManagerPassword("");
+      setNewManagerPhone("");
+      setNewManagerTitle("Gerente Comercial");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erro ao cadastrar gerente.");
+      toast.error(err instanceof Error ? err.message : "Erro ao cadastrar gerente.");
     } finally {
       setBusy(false);
     }
@@ -367,6 +413,17 @@ function SettingsPage() {
         >
           <Users size={16} /> Equipe & Vendedores
         </Button>
+
+        {data.isAdmin && (
+          <Button
+            variant={activeTab === "managers" ? "default" : "ghost"}
+            size="sm"
+            className="gap-2 font-semibold"
+            onClick={() => setActiveTab("managers")}
+          >
+            <ShieldCheck size={16} /> Gerentes
+          </Button>
+        )}
 
         <Button
           variant={activeTab === "conditions" ? "default" : "ghost"}
@@ -862,6 +919,205 @@ function SettingsPage() {
                   </Button>
                 </div>
               </div>
+            </div>
+          )}
+        </section>
+      )}
+
+      {/* ========================================================= */}
+      {/* TAB: GERENTES (Admin only) */}
+      {/* ========================================================= */}
+      {activeTab === "managers" && data.isAdmin && (
+        <section className="space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-bold">Gerentes Comerciais</h2>
+              <p className="text-xs text-muted-foreground">
+                Cadastre gerentes que poderão pré-registrar vendedores e acompanhar toda a equipe.
+              </p>
+            </div>
+            <Button className="font-bold gap-2" onClick={() => setShowAddManagerModal(true)}>
+              <Plus size={16} /> + Novo Gerente
+            </Button>
+          </div>
+
+          <div className="data-panel overflow-x-auto">
+            <table>
+              <thead>
+                <tr>
+                  <th>Gerente</th>
+                  <th>E-mail</th>
+                  <th>Telefone</th>
+                  <th>Cargo</th>
+                  <th>Status</th>
+                  <th>Ações</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.sellers
+                  .filter((s) => s.role === "manager")
+                  .length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="text-center text-muted-foreground py-8 text-sm">
+                      Nenhum gerente cadastrado. Clique em &quot;+ Novo Gerente&quot; para adicionar.
+                    </td>
+                  </tr>
+                ) : (
+                  data.sellers
+                    .filter((s) => s.role === "manager")
+                    .map((s) => {
+                      const prefs = (s.preferences as Record<string, any>) || {};
+                      return (
+                        <tr key={s.id}>
+                          <td>
+                            <div className="flex items-center gap-2.5">
+                              <div className="grid size-8 place-items-center rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 font-bold text-xs uppercase">
+                                {s.full_name?.slice(0, 2) ?? "GR"}
+                              </div>
+                              <div>
+                                <strong className="block text-sm font-semibold">{s.full_name}</strong>
+                                <span className="inline-flex items-center gap-1 text-[11px] text-blue-600 dark:text-blue-400 font-semibold">
+                                  <ShieldCheck size={10} /> Gerente
+                                </span>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="text-xs text-muted-foreground">{prefs["email"] || "—"}</td>
+                          <td className="text-xs text-muted-foreground">{s.phone ? formatPhone(s.phone) : "—"}</td>
+                          <td className="text-xs text-muted-foreground">{s.job_title ?? "Gerente Comercial"}</td>
+                          <td>
+                            <span className={`status-pill ${
+                              s.status === "active"
+                                ? "bg-emerald-100 text-emerald-800"
+                                : "bg-muted text-muted-foreground"
+                            }`}>
+                              {s.status === "active" ? "Ativo" : "Inativo"}
+                            </span>
+                          </td>
+                          <td>
+                            <div className="flex items-center gap-2">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="text-xs font-semibold gap-1"
+                                onClick={() => {
+                                  const text = `🎯 *Acesso Gerência — Nexo Comercial*\nOlá, *${s.full_name}*! Seu acesso de gerente foi cadastrado.\n\n🔗 *Link de Acesso:* ${window.location.origin}/auth\n📧 *E-mail:* ${prefs["email"] || "—"}\n🔑 *Senha Inicial:* *${prefs["initial_password"] || "Informada pelo administrador"}*\n\nCom seu acesso de gerente, você pode pré-cadastrar vendedores e monitorar toda a equipe!`;
+                                  navigator.clipboard.writeText(text);
+                                  toast.success("Credenciais do gerente copiadas!");
+                                }}
+                                title="Copiar dados de acesso"
+                              >
+                                <Copy size={12} /> Copiar Acesso
+                              </Button>
+
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className={s.status === "active" ? "text-amber-700" : "text-emerald-700"}
+                                onClick={() => handleToggleSellerStatus(s.id)}
+                                disabled={busy}
+                              >
+                                {s.status === "active" ? <UserX size={14} className="mr-1" /> : <UserCheck size={14} className="mr-1" />}
+                                {s.status === "active" ? "Inativar" : "Ativar"}
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Modal: Add Manager */}
+          {showAddManagerModal && (
+            <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4">
+              <form onSubmit={handleAddManagerSubmit} className="w-full max-w-md rounded-xl border border-border bg-card p-6 shadow-2xl">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="grid size-10 place-items-center rounded-xl bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300">
+                    <ShieldCheck size={20} />
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-bold">Cadastrar Novo Gerente</h2>
+                    <p className="text-xs text-muted-foreground">O gerente terá acesso completo à equipe e poderá pré-registrar vendedores.</p>
+                  </div>
+                </div>
+
+                <div className="mt-2 space-y-3">
+                  <label className="block text-sm font-medium">
+                    Nome Completo *
+                    <input
+                      className="input-field mt-1"
+                      required
+                      value={newManagerName}
+                      onChange={(e) => setNewManagerName(e.target.value)}
+                      placeholder="Ex: Maria Souza"
+                    />
+                  </label>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <label className="block text-sm font-medium">
+                      E-mail Corporativo *
+                      <input
+                        type="email"
+                        className="input-field mt-1"
+                        required
+                        value={newManagerEmail}
+                        onChange={(e) => setNewManagerEmail(e.target.value)}
+                        placeholder="gerente@empresa.com"
+                      />
+                    </label>
+
+                    <label className="block text-sm font-medium">
+                      Telefone / WhatsApp
+                      <input
+                        className="input-field mt-1"
+                        value={newManagerPhone}
+                        onChange={(e) => setNewManagerPhone(e.target.value)}
+                        placeholder="(00) 00000-0000"
+                      />
+                    </label>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <label className="block text-sm font-medium">
+                      Senha Inicial *
+                      <input
+                        className="input-field mt-1 font-mono"
+                        required
+                        value={newManagerPassword}
+                        onChange={(e) => setNewManagerPassword(e.target.value)}
+                        placeholder="ex: Gerente@2026"
+                      />
+                    </label>
+
+                    <label className="block text-sm font-medium">
+                      Cargo
+                      <input
+                        className="input-field mt-1"
+                        value={newManagerTitle}
+                        onChange={(e) => setNewManagerTitle(e.target.value)}
+                        placeholder="Ex: Gerente Comercial"
+                      />
+                    </label>
+                  </div>
+
+                  <div className="rounded-lg bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 p-3 text-xs text-blue-700 dark:text-blue-300">
+                    <strong>Permissões do gerente:</strong> pré-cadastrar vendedores, visualizar toda a equipe, acompanhar carteiras e conversões.
+                  </div>
+                </div>
+
+                <div className="mt-6 flex justify-end gap-3">
+                  <Button variant="ghost" type="button" onClick={() => setShowAddManagerModal(false)} disabled={busy}>
+                    Cancelar
+                  </Button>
+                  <Button type="submit" disabled={busy} className="font-bold gap-2">
+                    <ShieldCheck size={15} />
+                    {busy ? "Salvando..." : "Criar Gerente"}
+                  </Button>
+                </div>
+              </form>
             </div>
           )}
         </section>

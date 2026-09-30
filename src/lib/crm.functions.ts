@@ -704,6 +704,7 @@ export const manageSeller = createServerFn({ method: "POST" })
       jobTitle: z.string().max(80).optional(),
       teamId: z.string().uuid().nullable().optional(),
       status: z.enum(["active", "inactive"]).optional(),
+      role: z.enum(["seller", "manager"]).optional(),
     }).parse(input)
   )
   .handler(async ({ data, context }) => {
@@ -720,8 +721,11 @@ export const manageSeller = createServerFn({ method: "POST" })
     if (data.action === "create") {
       if (!data.fullName) throw new Error("Nome completo é obrigatório.");
       if (!data.email) throw new Error("E-mail corporativo é obrigatório para o pré-cadastro.");
-      const initialPassword = data.password?.trim() || `Vendedor@${Math.floor(1000 + Math.random() * 9000)}`;
-      const accessCode = data.accessCode?.trim().toUpperCase() || `VD-${Math.floor(1000 + Math.random() * 9000)}`;
+      const targetRole = data.role || "seller";
+      const rolePrefix = targetRole === "manager" ? "GR" : "VD";
+      const defaultPass = targetRole === "manager" ? "Gerente" : "Vendedor";
+      const initialPassword = data.password?.trim() || `${defaultPass}@${Math.floor(1000 + Math.random() * 9000)}`;
+      const accessCode = data.accessCode?.trim().toUpperCase() || `${rolePrefix}-${Math.floor(1000 + Math.random() * 9000)}`;
 
       let authUserId: string | null = null;
 
@@ -797,7 +801,7 @@ export const manageSeller = createServerFn({ method: "POST" })
             id: authUserId,
             full_name: data.fullName.trim(),
             phone: data.phone?.trim() || null,
-            job_title: data.jobTitle?.trim() || "Vendedor Comercial",
+            job_title: data.jobTitle?.trim() || (targetRole === "manager" ? "Gerente Comercial" : "Vendedor Comercial"),
             team_id: data.teamId || null,
             manager_id: context.userId,
             status: "active",
@@ -810,11 +814,11 @@ export const manageSeller = createServerFn({ method: "POST" })
 
       if (profErr) throw new Error(`Erro ao salvar perfil do vendedor: ${profErr.message}`);
 
-      // Ensure seller role
+      // Ensure correct role
       await db.from("user_roles").upsert(
         {
           user_id: authUserId,
-          role: "seller",
+          role: targetRole,
         },
         { onConflict: "user_id,role" }
       );
