@@ -94,7 +94,7 @@ function SellerDashboard({ data }: { data: NonNullable<ReturnType<typeof useWork
   const myStudents = data.students.filter((s) => s.owner_id === data.userId || !s.owner_id);
   const myProposals = data.proposals.filter((p) => p.seller_id === data.userId);
   const myFollowups = data.followups.filter((f) => f.seller_id === data.userId);
-  const mySales = data.sales.filter((s) => s.seller_id === data.userId);
+  const mySales = (data.sales as any[]).filter((s: any) => s.seller_id === data.userId);
 
   const closedProposals = myProposals.filter((p) => p.status === "approved");
   const openProposals = myProposals.filter((p) => ["sent", "viewed", "negotiation"].includes(p.status));
@@ -808,9 +808,9 @@ function ManagerDashboard({ data }: { data: NonNullable<ReturnType<typeof useWor
   // Copy WhatsApp Access Credentials
   function handleCopySellerWhatsApp(seller: any) {
     const prefs = (seller.preferences as Record<string, any>) || {};
-    const email = prefs.email || seller.phone || "Consulte a gerência";
-    const code = prefs.access_code || "Consulte a gerência";
-    const pass = prefs.initial_password || "Definida no pré-cadastro";
+    const email = prefs["email"] || seller.phone || "Consulte a gerência";
+    const code = prefs["access_code"] || "Consulte a gerência";
+    const pass = prefs["initial_password"] || "Definida no pré-cadastro";
 
     const text = `🚀 *Acesso Liberado — Nexo Comercial*
 Olá, *${seller.full_name}*! O seu acesso ao sistema de vendas foi pré-cadastrado pela gerência.
@@ -937,8 +937,8 @@ Ao fazer login você acessará diretamente o seu Painel de Vendas para conduzir 
             <tbody>
               {data.sellers.map((s) => {
                 const prefs = (s.preferences as Record<string, any>) || {};
-                const accessCode = prefs.access_code;
-                const sellerLoginEmail = prefs.email || "—";
+                const accessCode = prefs["access_code"];
+                const sellerLoginEmail = prefs["email"] || "—";
 
                 return (
                   <tr key={s.id}>

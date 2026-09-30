@@ -843,8 +843,8 @@ export const manageSeller = createServerFn({ method: "POST" })
 
       const { data: currentProf } = await db.from("profiles").select("preferences").eq("id", data.sellerId).single();
       const prefs = ((currentProf?.preferences as Record<string, any>) || {});
-      prefs.initial_password = newPassword;
-      prefs.password_updated_at = new Date().toISOString();
+      prefs["initial_password"] = newPassword;
+      prefs["password_updated_at"] = new Date().toISOString();
 
       const { data: updated, error } = await db
         .from("profiles")
@@ -920,14 +920,14 @@ export const resolveSellerLogin = createServerFn({ method: "POST" })
     const match = (profiles || []).find((p: any) => {
       const prefs = p.preferences as Record<string, any> | undefined;
       return (
-        prefs?.access_code?.toLowerCase() === clean.toLowerCase() ||
-        prefs?.email?.toLowerCase() === clean.toLowerCase() ||
+        prefs?.["access_code"]?.toLowerCase() === clean.toLowerCase() ||
+        prefs?.["email"]?.toLowerCase() === clean.toLowerCase() ||
         p.phone?.replace(/\D/g, "") === clean.replace(/\D/g, "")
       );
     });
 
     if (match) {
-      const email = (match.preferences as any)?.email;
+      const email = (match.preferences as any)?.["email"];
       return { email: email || null, fullName: match.full_name };
     }
 
@@ -1000,7 +1000,7 @@ export const completeFollowup = createServerFn({ method: "POST" })
       .update({
         status: "completed",
         completed_at: new Date().toISOString(),
-        notes: data.notes?.trim() || undefined,
+        notes: data.notes?.trim() || null,
       })
       .eq("id", data.followupId)
       .select()

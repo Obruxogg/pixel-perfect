@@ -677,7 +677,7 @@ function SettingsPage() {
                           className="text-xs font-semibold gap-1"
                           onClick={() => {
                             const prefs = (s.preferences as Record<string, any>) || {};
-                            const text = `🚀 *Acesso Liberado — Nexo Comercial*\nOlá, *${s.full_name}*! O seu acesso ao sistema de vendas foi pré-cadastrado pela gerência.\n\n🔗 *Link de Acesso:* ${window.location.origin}/auth\n📧 *E-mail:* ${prefs.email || s.phone || "Consulte a gerência"}\n🏷️ *Código de Vendedor:* *${prefs.access_code || "Consulte a gerência"}*\n🔑 *Senha Inicial:* *${prefs.initial_password || "Informada pela gerência"}*\n\nFaça login para acessar o seu Painel de Vendas!`;
+                            const text = `🚀 *Acesso Liberado — Nexo Comercial*\nOlá, *${s.full_name}*! O seu acesso ao sistema de vendas foi pré-cadastrado pela gerência.\n\n🔗 *Link de Acesso:* ${window.location.origin}/auth\n📧 *E-mail:* ${prefs["email"] || s.phone || "Consulte a gerência"}\n🏷️ *Código de Vendedor:* *${prefs["access_code"] || "Consulte a gerência"}*\n🔑 *Senha Inicial:* *${prefs["initial_password"] || "Informada pela gerência"}*\n\nFaça login para acessar o seu Painel de Vendas!`;
                             navigator.clipboard.writeText(text);
                             toast.success("Credenciais copiadas para WhatsApp!");
                           }}
