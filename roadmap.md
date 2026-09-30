@@ -7,4 +7,4 @@
 - [x] Implementar painel, simulação, proposta e timer
 - [x] Implementar CRM, contatos, propostas e configurações
 - [x] Verificar compilação e abertura da interface
-- [ ] Corrigir e validar o cadastro de vendedores com acesso administrativo
+- [x] Corrigir e validar o cadastro de vendedores com acesso administrativo
