@@ -255,7 +255,7 @@ const proposalInput = z.object({
   email: z.string().email().optional().or(z.literal("")),
   courseId: z.string().uuid(),
   paymentMethodId: z.string().uuid(),
-  installmentId: z.string().uuid(),
+  installmentId: z.string().uuid().optional().or(z.literal("")),
   discountId: z.string().uuid().optional().or(z.literal("")),
   matriculaDiscount: z.number().nonnegative().optional().default(0),
   entradaDiscount: z.number().nonnegative().optional().default(0),
@@ -271,38 +271,58 @@ export const createProposal = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     const db = context.supabase;
 
+    let installmentPromise;
+    if (data.installmentId) {
+      installmentPromise = db.from("installment_options").select("*").eq("id", data.installmentId).maybeSingle();
+    } else {
+      installmentPromise = db.from("installment_options").select("*").eq("payment_method_id", data.paymentMethodId).order("installments", { ascending: true }).limit(1).maybeSingle();
+    }
+
     const [
-      { data: course },
-      { data: method },
-      { data: installment },
-      { data: discountRule },
-      { data: roleRows },
-      { data: condition },
+      courseRes,
+      methodRes,
+      installmentRes,
+      discountRes,
+      roleRowsRes,
+      conditionRes,
     ] = await Promise.all([
-      db.from("courses").select("*, areas(name)").eq("id", data.courseId).eq("status", "active").single(),
-      db.from("payment_methods").select("*").eq("id", data.paymentMethodId).eq("status", "active").single(),
-      db.from("installment_options").select("*").eq("id", data.installmentId).eq("status", "active").single(),
-      data.discountId ? db.from("discount_rules").select("*").eq("id", data.discountId).eq("status", "active").single() : Promise.resolve({ data: null }),
+      db.from("courses").select("*, areas(name)").eq("id", data.courseId).eq("status", "active").maybeSingle(),
+      db.from("payment_methods").select("*").eq("id", data.paymentMethodId).eq("status", "active").maybeSingle(),
+      installmentPromise,
+      data.discountId ? db.from("discount_rules").select("*").eq("id", data.discountId).eq("status", "active").maybeSingle() : Promise.resolve({ data: null }),
       db.from("user_roles").select("role").eq("user_id", context.userId),
-      db.from("commercial_conditions").select("*").eq("course_id", data.courseId).eq("payment_method_id", data.paymentMethodId).eq("installment_option_id", data.installmentId).eq("status", "active").maybeSingle(),
+      db.from("commercial_conditions").select("*").eq("course_id", data.courseId).eq("payment_method_id", data.paymentMethodId).maybeSingle(),
     ]);
 
-    if (!course || !method || !installment) throw new Error("A condição selecionada não está mais disponível.");
+    const course = courseRes?.data;
+    const method = methodRes?.data;
+    if (!course || !method) throw new Error("O curso ou a forma de pagamento selecionada não está mais disponível.");
 
-    const roles = (roleRows ?? []).map((r) => r.role);
-    if (discountRule && !discountRule.allowed_roles.some((role) => roles.includes(role))) {
+    const installment = installmentRes?.data || {
+      id: null,
+      installments: 1,
+      label: "À vista",
+    };
+    const discountRule = discountRes?.data || null;
+    const condition = conditionRes?.data || null;
+
+    const roles = (roleRowsRes?.data ?? []).map((r) => r.role);
+    if (discountRule && !discountRule.allowed_roles.some((role: any) => roles.includes(role))) {
       throw new Error("Este desconto não está autorizado para seu perfil.");
     }
 
     // Determine base price
-    const { data: configuredPrice } = await db
+    let priceQuery = db
       .from("course_prices")
       .select("price")
       .eq("course_id", data.courseId)
       .eq("payment_method_id", data.paymentMethodId)
-      .eq("installment_option_id", data.installmentId)
-      .eq("status", "active")
-      .maybeSingle();
+      .eq("status", "active");
+
+    if (installment.id) {
+      priceQuery = priceQuery.eq("installment_option_id", installment.id);
+    }
+    const { data: configuredPrice } = await priceQuery.maybeSingle();
 
     const originalPrice = Number(configuredPrice?.price ?? course.base_price);
 
@@ -353,61 +373,82 @@ export const createProposal = createServerFn({ method: "POST" })
 
     finalPrice = Math.round(finalPrice * 100) / 100;
     const finalDiscountAmount = Math.round((originalPrice - finalPrice) * 100) / 100;
-    const installmentValue = Math.floor((finalPrice / installment.installments) * 100) / 100;
+    const countInstallments = Math.max(1, Number(installment.installments) || 1);
+    const installmentValue = Math.floor((finalPrice / countInstallments) * 100) / 100;
 
     // Student handling (Prevent duplication per Requirement 8)
-    const whatsapp = data.whatsapp.replace(/\D/g, "");
-    let studentId = data.studentId;
+    const cleanWhatsapp = data.whatsapp.replace(/\D/g, "");
+    let studentId = data.studentId || null;
     let student: Record<string, unknown> | null = null;
 
     if (studentId) {
-      const { data: existingStudent } = await db.from("students").select("*").eq("id", studentId).single();
+      const { data: existingStudent } = await db.from("students").select("*").eq("id", studentId).maybeSingle();
       student = existingStudent;
-    } else {
-      const { data: existingByPhone } = await db.from("students").select("*").eq("whatsapp", whatsapp).maybeSingle();
+    }
+
+    if (!student) {
+      const { data: existingByPhone } = await db
+        .from("students")
+        .select("*")
+        .or(`whatsapp.eq.${cleanWhatsapp},whatsapp.eq.${data.whatsapp.trim()}`)
+        .limit(1)
+        .maybeSingle();
+
       if (existingByPhone) {
         student = existingByPhone;
         studentId = existingByPhone.id;
       } else {
-        const firstStage = await db.from("crm_stages").select("id").eq("status", "active").order("sort_order").limit(1).single();
+        const { data: firstStage } = await db.from("crm_stages").select("id").eq("status", "active").order("sort_order").limit(1).maybeSingle();
         const inserted = await db
           .from("students")
           .insert({
-            full_name: data.studentName,
-            whatsapp,
-            email: data.email || null,
+            full_name: data.studentName.trim(),
+            whatsapp: cleanWhatsapp,
+            email: data.email?.trim() || null,
             owner_id: context.userId,
-            crm_stage_id: firstStage.data?.id ?? null,
+            crm_stage_id: firstStage?.id ?? null,
           })
           .select()
           .single();
 
-        if (inserted.error) throw new Error("Não foi possível cadastrar o aluno.");
+        if (inserted.error) throw new Error(`Não foi possível cadastrar o aluno: ${inserted.error.message}`);
         student = inserted.data;
         studentId = inserted.data.id;
 
-        await db.from("student_assignments").insert({
-          student_id: studentId,
-          seller_id: context.userId,
-          assigned_by: context.userId,
-          reason: "Criação de proposta",
-        });
+        try {
+          await db.from("student_assignments").insert({
+            student_id: studentId,
+            seller_id: context.userId,
+            assigned_by: context.userId,
+            reason: "Criação de proposta",
+          });
+        } catch {
+          // Assignment policy might restrict to manager/admin, don't fail proposal creation
+        }
 
-        await db.from("student_interactions").insert({
-          student_id: studentId,
-          user_id: context.userId,
-          kind: "student_created",
-          notes: `Contato cadastrado no sistema (${data.studentName})`,
-        });
+        try {
+          await db.from("student_interactions").insert({
+            student_id: studentId,
+            user_id: context.userId,
+            kind: "student_created",
+            notes: `Contato cadastrado no sistema (${data.studentName})`,
+          });
+        } catch {
+          // Interactions table fail-safe
+        }
       }
     }
 
     if (!studentId || !student) throw new Error("Não foi possível identificar o aluno.");
 
     // Update CRM stage to "Proposta enviada" if currently in first stage
-    const proposalStage = await db.from("crm_stages").select("id").ilike("name", "%proposta%").limit(1).maybeSingle();
-    if (proposalStage.data?.id) {
-      await db.from("students").update({ crm_stage_id: proposalStage.data.id }).eq("id", studentId);
+    try {
+      const { data: proposalStage } = await db.from("crm_stages").select("id").ilike("name", "%proposta%").limit(1).maybeSingle();
+      if (proposalStage?.id) {
+        await db.from("students").update({ crm_stage_id: proposalStage.id }).eq("id", studentId);
+      }
+    } catch {
+      // Stage update fail-safe
     }
 
     // Set proposal validity
@@ -442,7 +483,7 @@ export const createProposal = createServerFn({ method: "POST" })
         discount_amount: finalDiscountAmount,
         final_price: finalPrice,
         payment_method_name: method.name,
-        installments: installment.installments,
+        installments: countInstallments,
         installment_value: installmentValue,
         status: "sent",
         timer_status: "active",
@@ -454,45 +495,61 @@ export const createProposal = createServerFn({ method: "POST" })
 
     if (created.error || !created.data) throw new Error("Não foi possível salvar a proposta.");
 
-    // Proposal events and student history
-    await db.from("proposal_events").insert({
-      proposal_id: created.data.id,
-      user_id: context.userId,
-      action: "created",
-      new_data: created.data,
-    });
-
-    await db.from("proposal_timer_events").insert({
-      proposal_id: created.data.id,
-      user_id: context.userId,
-      action: "started",
-      new_status: "active",
-      new_valid_until: validUntil,
-    });
-
-    await db.from("student_interactions").insert({
-      student_id: studentId,
-      user_id: context.userId,
-      kind: "proposal_created",
-      notes: `Proposta gerada: ${course.name} por R$ ${finalPrice.toFixed(2)} (${installment.installments}x de R$ ${installmentValue.toFixed(2)})`,
-      metadata: { proposal_id: created.data.id, final_price: finalPrice },
-    });
-
-    // Followup (if requested)
-    if (data.followupAt) {
-      await db.from("followups").insert({
-        student_id: studentId,
-        seller_id: context.userId,
-        due_at: data.followupAt,
-        notes: data.followupNotes || "Retorno sobre a proposta",
+    // Proposal events and student history in fail-safe blocks
+    try {
+      await db.from("proposal_events").insert({
+        proposal_id: created.data.id,
+        user_id: context.userId,
+        action: "created",
+        new_data: created.data,
       });
+    } catch {
+      // Event fail-safe
+    }
 
+    try {
+      await db.from("proposal_timer_events").insert({
+        proposal_id: created.data.id,
+        user_id: context.userId,
+        action: "started",
+        new_status: "active",
+        new_valid_until: validUntil,
+      });
+    } catch {
+      // Timer event fail-safe
+    }
+
+    try {
       await db.from("student_interactions").insert({
         student_id: studentId,
         user_id: context.userId,
-        kind: "followup_scheduled",
-        notes: `Retorno agendado para ${new Date(data.followupAt).toLocaleString("pt-BR")}: ${data.followupNotes || ""}`,
+        kind: "proposal_created",
+        notes: `Proposta gerada: ${course.name} por R$ ${finalPrice.toFixed(2)} (${countInstallments}x de R$ ${installmentValue.toFixed(2)})`,
+        metadata: { proposal_id: created.data.id, final_price: finalPrice },
       });
+    } catch {
+      // Interaction fail-safe
+    }
+
+    // Followup (if requested)
+    if (data.followupAt) {
+      try {
+        await db.from("followups").insert({
+          student_id: studentId,
+          seller_id: context.userId,
+          due_at: data.followupAt,
+          notes: data.followupNotes || "Retorno sobre a proposta",
+        });
+
+        await db.from("student_interactions").insert({
+          student_id: studentId,
+          user_id: context.userId,
+          kind: "followup_scheduled",
+          notes: `Retorno agendado para ${new Date(data.followupAt).toLocaleString("pt-BR")}: ${data.followupNotes || ""}`,
+        });
+      } catch {
+        // Followup fail-safe
+      }
     }
 
     return { proposal: created.data, studentId, studentName: data.studentName };
