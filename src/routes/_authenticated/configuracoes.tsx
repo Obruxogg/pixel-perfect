@@ -21,11 +21,13 @@ import {
   Copy,
   KeyRound,
   ShieldCheck,
+  CreditCard,
+  Calendar,
 } from "lucide-react";
 import { toast } from "sonner";
 import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
-import { saveCatalogItem, manageSeller, transferStudents, toggleCatalogItemStatus } from "@/lib/crm.functions";
+import { saveCatalogItem, manageSeller, transferStudents, toggleCatalogItemStatus, savePaymentMethod, saveInstallmentOption } from "@/lib/crm.functions";
 import { brl, formatPhone, useRefreshWorkspace, useWorkspace } from "@/lib/use-workspace";
 
 export const Route = createFileRoute("/_authenticated/configuracoes")({
@@ -65,7 +67,17 @@ function SettingsPage() {
   }
 
   // Active Tab
-  const [activeTab, setActiveTab] = useState<"team" | "managers" | "conditions" | "triggers" | "courses" | "discounts" | "crm">("team");
+  const [activeTab, setActiveTab] = useState<"team" | "managers" | "conditions" | "triggers" | "courses" | "discounts" | "crm" | "payments" | "installments">("team");
+  const saveMethod = useServerFn(savePaymentMethod);
+  const saveInst = useServerFn(saveInstallmentOption);
+
+  // Formas de Pagamento & Parcelamentos
+  const [newMethodName, setNewMethodName] = useState("");
+  const [newMethodSort, setNewMethodSort] = useState("0");
+  const [newInstPaymentMethodId, setNewInstPaymentMethodId] = useState("");
+  const [newInstCount, setNewInstCount] = useState("12");
+  const [newInstLabel, setNewInstLabel] = useState("12x");
+  const [newInstSort, setNewInstSort] = useState("0");
 
   // Condition Form
   const [condCourseId, setCondCourseId] = useState("");
@@ -473,6 +485,24 @@ function SettingsPage() {
           onClick={() => setActiveTab("discounts")}
         >
           <DollarSign size={16} /> Descontos Comerciais
+        </Button>
+
+        <Button
+          variant={activeTab === "payments" ? "default" : "ghost"}
+          size="sm"
+          className="gap-2 font-semibold"
+          onClick={() => setActiveTab("payments")}
+        >
+          <CreditCard size={16} /> Formas de Pagamento
+        </Button>
+
+        <Button
+          variant={activeTab === "installments" ? "default" : "ghost"}
+          size="sm"
+          className="gap-2 font-semibold"
+          onClick={() => setActiveTab("installments")}
+        >
+          <Calendar size={16} /> Parcelamentos
         </Button>
 
         <Button
@@ -1448,6 +1478,225 @@ function SettingsPage() {
                   </span>
                 </div>
               ))}
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* ========================================================= */}
+      {/* TAB FORMAS DE PAGAMENTO */}
+      {/* ========================================================= */}
+      {activeTab === "payments" && (
+        <section className="space-y-6">
+          <form
+            onSubmit={async (e) => {
+              e.preventDefault();
+              if (!newMethodName) return;
+              setBusy(true);
+              setError("");
+              setMessage("");
+              try {
+                await saveMethod({ data: { name: newMethodName, sortOrder: Number(newMethodSort) || 0 } });
+                await refresh();
+                setMessage("Forma de pagamento cadastrada com sucesso!");
+                setNewMethodName("");
+                setNewMethodSort("0");
+              } catch (err) {
+                setError(err instanceof Error ? err.message : "Erro ao cadastrar forma de pagamento.");
+              } finally {
+                setBusy(false);
+              }
+            }}
+            className="data-panel p-5"
+          >
+            <h2 className="text-base font-bold mb-1 flex items-center gap-2">
+              <Plus size={16} className="text-primary" /> Adicionar Forma de Pagamento
+            </h2>
+            <p className="text-xs text-muted-foreground mb-4">
+              Cadastre métodos de pagamento como Cartão de Crédito, PIX, Boleto Bancário ou Carnê Próprio.
+            </p>
+            <div className="grid gap-3 sm:grid-cols-3 max-w-2xl">
+              <div>
+                <label className="text-xs font-semibold text-muted-foreground block mb-1">Nome da Forma de Pagamento</label>
+                <input
+                  className="input-field"
+                  required
+                  placeholder="Ex: Cartão de Crédito (Visa/Master)"
+                  value={newMethodName}
+                  onChange={(e) => setNewMethodName(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-muted-foreground block mb-1">Ordem de Exibição</label>
+                <input
+                  type="number"
+                  className="input-field"
+                  value={newMethodSort}
+                  onChange={(e) => setNewMethodSort(e.target.value)}
+                />
+              </div>
+              <div className="flex items-end">
+                <Button type="submit" disabled={busy} className="font-bold w-full">
+                  {busy ? "Salvando..." : "Salvar Forma de Pagamento"}
+                </Button>
+              </div>
+            </div>
+          </form>
+
+          <div className="data-panel p-5">
+            <h3 className="text-sm font-bold mb-3">Formas de Pagamento Cadastradas ({data.methods.length})</h3>
+            <div className="space-y-2">
+              {data.methods.map((pm, i) => (
+                <div key={pm.id} className="flex items-center justify-between p-3 rounded-lg border border-border bg-card text-xs">
+                  <div className="flex items-center gap-3">
+                    <span className="font-bold text-muted-foreground w-4">{i + 1}.</span>
+                    <CreditCard size={16} className="text-primary" />
+                    <strong className="font-semibold text-foreground text-sm">{pm.name}</strong>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className={`status-pill ${pm.status === "active" ? "bg-emerald-100 text-emerald-800" : "bg-muted text-muted-foreground"}`}>
+                      {pm.status === "active" ? "Ativo" : "Inativo"}
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={busy}
+                      onClick={() => handleToggleStatus("payment_methods", pm.id)}
+                    >
+                      {pm.status === "active" ? "Desativar" : "Ativar"}
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* ========================================================= */}
+      {/* TAB PARCELAMENTOS */}
+      {/* ========================================================= */}
+      {activeTab === "installments" && (
+        <section className="space-y-6">
+          <form
+            onSubmit={async (e) => {
+              e.preventDefault();
+              if (!newInstPaymentMethodId || !newInstLabel) return;
+              setBusy(true);
+              setError("");
+              setMessage("");
+              try {
+                await saveInst({
+                  data: {
+                    paymentMethodId: newInstPaymentMethodId,
+                    installments: Number(newInstCount) || 1,
+                    label: newInstLabel,
+                    sortOrder: Number(newInstSort) || 0,
+                  },
+                });
+                await refresh();
+                setMessage("Opção de parcelamento cadastrada com sucesso!");
+                setNewInstPaymentMethodId("");
+                setNewInstCount("12");
+                setNewInstLabel("12x");
+                setNewInstSort("0");
+              } catch (err) {
+                setError(err instanceof Error ? err.message : "Erro ao cadastrar parcelamento.");
+              } finally {
+                setBusy(false);
+              }
+            }}
+            className="data-panel p-5"
+          >
+            <h2 className="text-base font-bold mb-1 flex items-center gap-2">
+              <Plus size={16} className="text-primary" /> Nova Opção de Parcelamento
+            </h2>
+            <p className="text-xs text-muted-foreground mb-4">
+              Vincule opções de parcelas a uma Forma de Pagamento (ex: Cartão de Crédito -> 12x ou Carnê -> 18x).
+            </p>
+            <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-4 max-w-4xl">
+              <div>
+                <label className="text-xs font-semibold text-muted-foreground block mb-1">Forma de Pagamento</label>
+                <select
+                  className="input-field"
+                  required
+                  value={newInstPaymentMethodId}
+                  onChange={(e) => setNewInstPaymentMethodId(e.target.value)}
+                >
+                  <option value="">Selecione...</option>
+                  {data.methods.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-muted-foreground block mb-1">Nº de Parcelas</label>
+                <input
+                  type="number"
+                  min="1"
+                  max="120"
+                  className="input-field"
+                  required
+                  value={newInstCount}
+                  onChange={(e) => {
+                    setNewInstCount(e.target.value);
+                    setNewInstLabel(`${e.target.value}x`);
+                  }}
+                />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-muted-foreground block mb-1">Rótulo Exibido</label>
+                <input
+                  className="input-field"
+                  required
+                  placeholder="Ex: 12x Sem Juros"
+                  value={newInstLabel}
+                  onChange={(e) => setNewInstLabel(e.target.value)}
+                />
+              </div>
+              <div className="flex items-end">
+                <Button type="submit" disabled={busy} className="font-bold w-full">
+                  {busy ? "Salvando..." : "Salvar Parcelamento"}
+                </Button>
+              </div>
+            </div>
+          </form>
+
+          <div className="data-panel p-5">
+            <h3 className="text-sm font-bold mb-3">Opções de Parcelamento ({data.installments.length})</h3>
+            <div className="space-y-2">
+              {data.installments.map((inst, i) => {
+                const parentMethod = data.methods.find((m) => m.id === inst.payment_method_id);
+                return (
+                  <div key={inst.id} className="flex items-center justify-between p-3 rounded-lg border border-border bg-card text-xs">
+                    <div className="flex items-center gap-3">
+                      <span className="font-bold text-muted-foreground w-4">{i + 1}.</span>
+                      <Calendar size={16} className="text-primary" />
+                      <div>
+                        <strong className="font-semibold text-foreground text-sm block">{inst.label}</strong>
+                        <span className="text-muted-foreground text-[11px]">
+                          Forma de Pagamento: <b>{parentMethod?.name || "Todas"}</b> ({inst.installments} parcelas)
+                        </span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className={`status-pill ${inst.status === "active" ? "bg-emerald-100 text-emerald-800" : "bg-muted text-muted-foreground"}`}>
+                        {inst.status === "active" ? "Ativo" : "Inativo"}
+                      </span>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={busy}
+                        onClick={() => handleToggleStatus("installment_options", inst.id)}
+                      >
+                        {inst.status === "active" ? "Desativar" : "Ativar"}
+                      </Button>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
         </section>

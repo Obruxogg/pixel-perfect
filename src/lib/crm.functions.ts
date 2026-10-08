@@ -1324,7 +1324,7 @@ export const toggleCatalogItemStatus = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .validator((input: unknown) =>
     z.object({
-      table: z.enum(["courses", "areas", "discount_rules", "commercial_conditions", "crm_stages", "commercial_triggers"]),
+      table: z.enum(["courses", "areas", "discount_rules", "commercial_conditions", "crm_stages", "commercial_triggers", "payment_methods", "installment_options"]),
       id: z.string().uuid(),
     }).parse(input)
   )
@@ -1346,6 +1346,62 @@ export const toggleCatalogItemStatus = createServerFn({ method: "POST" })
       const { error } = await (context.supabase as any).from(data.table).update({ status: newStatus }).eq("id", data.id);
       if (error) throw new Error(error.message);
       return { ok: true, status: newStatus };
+    }
+  });
+
+export const savePaymentMethod = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .validator((input: unknown) =>
+    z.object({
+      id: z.string().uuid().optional(),
+      name: z.string().min(2).max(100),
+      sortOrder: z.number().optional().default(0),
+    }).parse(input)
+  )
+  .handler(async ({ data, context }) => {
+    const db = context.supabase;
+    const payload = {
+      name: data.name.trim(),
+      sort_order: data.sortOrder,
+    };
+    if (data.id) {
+      const { data: updated, error } = await db.from("payment_methods").update(payload).eq("id", data.id).select().single();
+      if (error) throw new Error(error.message);
+      return { ok: true, method: updated };
+    } else {
+      const { data: created, error } = await db.from("payment_methods").insert({ ...payload, status: "active" }).select().single();
+      if (error) throw new Error(error.message);
+      return { ok: true, method: created };
+    }
+  });
+
+export const saveInstallmentOption = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .validator((input: unknown) =>
+    z.object({
+      id: z.string().uuid().optional(),
+      paymentMethodId: z.string().uuid(),
+      installments: z.number().int().min(1).max(120),
+      label: z.string().min(1).max(100),
+      sortOrder: z.number().optional().default(0),
+    }).parse(input)
+  )
+  .handler(async ({ data, context }) => {
+    const db = context.supabase;
+    const payload = {
+      payment_method_id: data.paymentMethodId,
+      installments: data.installments,
+      label: data.label.trim(),
+      sort_order: data.sortOrder,
+    };
+    if (data.id) {
+      const { data: updated, error } = await db.from("installment_options").update(payload).eq("id", data.id).select().single();
+      if (error) throw new Error(error.message);
+      return { ok: true, installment: updated };
+    } else {
+      const { data: created, error } = await db.from("installment_options").insert({ ...payload, status: "active" }).select().single();
+      if (error) throw new Error(error.message);
+      return { ok: true, installment: created };
     }
   });
 
