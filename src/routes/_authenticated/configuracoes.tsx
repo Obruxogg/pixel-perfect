@@ -25,6 +25,7 @@ import {
   Calendar,
 } from "lucide-react";
 import { toast } from "sonner";
+import { EnrollmentSettings, CourseEnrollmentFields } from "@/components/enrollment-settings";
 import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
 import { saveCatalogItem, manageSeller, transferStudents, toggleCatalogItemStatus, savePaymentMethod, saveInstallmentOption } from "@/lib/crm.functions";
@@ -67,7 +68,7 @@ function SettingsPage() {
   }
 
   // Active Tab
-  const [activeTab, setActiveTab] = useState<"team" | "managers" | "conditions" | "triggers" | "courses" | "discounts" | "crm" | "payments" | "installments">("team");
+  const [activeTab, setActiveTab] = useState<"team" | "managers" | "conditions" | "triggers" | "courses" | "discounts" | "crm" | "payments" | "installments" | "enrollment">("team");
   const saveMethod = useServerFn(savePaymentMethod);
   const saveInst = useServerFn(saveInstallmentOption);
 
@@ -121,6 +122,9 @@ function SettingsPage() {
   const [itemWorkload, setItemWorkload] = useState("");
   const [itemModality, setItemModality] = useState("Presencial");
   const [itemBasePrice, setItemBasePrice] = useState("");
+  const [itemEnrollmentCustom, setItemEnrollmentCustom] = useState(false);
+  const [itemEnrollment, setItemEnrollment] = useState("");
+  const [itemMaterial, setItemMaterial] = useState("0");
 
   // Trigger Form (Requirement 29)
   const [triggerName, setTriggerName] = useState("");
@@ -336,6 +340,8 @@ function SettingsPage() {
           workload: catalogType === "course" && itemWorkload ? Number(itemWorkload) : undefined,
           modality: itemModality,
           basePrice: catalogType === "course" && itemBasePrice ? Number(itemBasePrice) : undefined,
+          enrollmentFee: itemEnrollmentCustom ? Number(itemEnrollment) : null,
+          materialDiscount: Number(itemMaterial),
         },
       });
       await refresh();
@@ -343,6 +349,9 @@ function SettingsPage() {
       setItemName("");
       setItemWorkload("");
       setItemBasePrice("");
+      setItemEnrollmentCustom(false);
+      setItemEnrollment("");
+      setItemMaterial("0");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro ao salvar item.");
     } finally {
@@ -459,6 +468,7 @@ function SettingsPage() {
         >
           <Handshake size={16} /> Condições Comerciais
         </Button>
+        <Button variant={activeTab === "enrollment" ? "default" : "ghost"} size="sm" className="gap-2 font-semibold" onClick={() => setActiveTab("enrollment")}><BookOpen size={16} /> Comercial · Matrículas</Button>
 
         <Button
           variant={activeTab === "triggers" ? "default" : "ghost"}
@@ -1182,6 +1192,7 @@ function SettingsPage() {
       {/* ========================================================= */}
       {/* TAB 2: GATILHOS COMERCIAIS (Requirement 29) */}
       {/* ========================================================= */}
+      {activeTab === "enrollment" && <EnrollmentSettings data={data} />}
       {activeTab === "triggers" && (
         <section className="space-y-6">
           <form onSubmit={handleSaveTrigger} className="data-panel p-5">
@@ -1366,6 +1377,8 @@ function SettingsPage() {
               )}
             </div>
 
+            {catalogType === "course" && <CourseEnrollmentFields globalFee={data.enrollmentFee} custom={itemEnrollmentCustom} value={itemEnrollment} material={itemMaterial} onCustom={setItemEnrollmentCustom} onValue={setItemEnrollment} onMaterial={setItemMaterial} />}
+
             <div className="mt-4 flex justify-end">
               <Button type="submit" disabled={busy} className="font-bold">
                 {busy ? "Salvando..." : "Salvar no Catálogo"}
@@ -1373,6 +1386,7 @@ function SettingsPage() {
             </div>
           </form>
 
+          <EnrollmentSettings data={data} courseOnly />
           <div className="grid gap-6 md:grid-cols-2">
             <div className="data-panel p-5">
               <h3 className="text-sm font-bold mb-3">Cursos Cadastrados ({data.courses.length})</h3>

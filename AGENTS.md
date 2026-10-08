@@ -10,3 +10,7 @@
 <!-- LOVABLE:END -->
 
 - Provisionamento e manutenção de usuários exigem papel administrativo/gerencial validado e cliente privilegiado no servidor; nunca usar cadastro público ou IDs artificiais como fallback, pois perfil e identidade precisam permanecer consistentes.
+
+- Enrollment uses one global settings row and nullable per-course overrides; null follows the live default without rewriting courses.
+- Use the shared commercial calculation for simulation and proposal creation; server reads authoritative fees and snapshots every price component so historical proposals remain unchanged.
+- Enrollment and material changes are audited by database triggers; bulk enrollment updates use one transaction to prevent partial application.
