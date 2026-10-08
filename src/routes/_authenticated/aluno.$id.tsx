@@ -44,6 +44,10 @@ export const Route = createFileRoute("/_authenticated/aluno/$id")({
     meta: [
       { title: "Perfil do Aluno — Instituto Mix" },
       { name: "description", content: "Histórico completo e perfil do aluno no Instituto Mix." },
+      { property: "og:title", content: "Perfil do Aluno — Instituto Mix" },
+      { property: "og:description", content: "Histórico completo e perfil do aluno no Instituto Mix." },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary" },
     ],
   }),
   component: StudentProfilePage,
@@ -438,6 +442,7 @@ function StudentProfilePage() {
                 <div className="grid grid-cols-3 gap-2">
                   {(["call", "whatsapp", "meeting", "email", "note", "visit"] as const).map((k) => {
                     const m = KIND_META[k];
+                    if (!m) return null;
                     const Icon = m.icon;
                     return (
                       <button

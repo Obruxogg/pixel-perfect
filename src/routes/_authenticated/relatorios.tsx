@@ -24,12 +24,16 @@ export const Route = createFileRoute("/_authenticated/relatorios")({
     meta: [
       { title: "Relatórios Comerciais — Instituto Mix" },
       { name: "description", content: "Análise de conversão, faturamento e desempenho da equipe comercial." },
+      { property: "og:title", content: "Relatórios Comerciais — Instituto Mix" },
+      { property: "og:description", content: "Análise de conversão, faturamento e desempenho da equipe comercial." },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary" },
     ],
   }),
   component: ReportsPage,
 });
 
-type ReportsResult = Awaited<ReturnType<ReturnType<typeof getReportsData>>>;
+type ReportsResult = Awaited<ReturnType<typeof getReportsData>>;
 
 function ReportsPage() {
   const { data: workspace } = useWorkspace();
