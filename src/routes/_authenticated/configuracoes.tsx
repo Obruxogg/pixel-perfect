@@ -1612,7 +1612,7 @@ function SettingsPage() {
               <Plus size={16} className="text-primary" /> Nova Opção de Parcelamento
             </h2>
             <p className="text-xs text-muted-foreground mb-4">
-              Vincule opções de parcelas a uma Forma de Pagamento (ex: Cartão de Crédito -> 12x ou Carnê -> 18x).
+              Vincule opções de parcelas a uma Forma de Pagamento (ex: Cartão de Crédito → 12x ou Carnê → 18x).
             </p>
             <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-4 max-w-4xl">
               <div>

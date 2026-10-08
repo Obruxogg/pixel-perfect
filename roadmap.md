@@ -8,3 +8,4 @@
 - [x] Implementar CRM, contatos, propostas e configurações
 - [x] Verificar compilação e abertura da interface
 - [x] Corrigir e validar o cadastro de vendedores com acesso administrativo
+- [ ] Corrigir declarações duplicadas e validar o carregamento da simulação e configurações
