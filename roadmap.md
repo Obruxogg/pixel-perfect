@@ -9,3 +9,5 @@
 - [x] Verificar compilação e abertura da interface
 - [x] Corrigir e validar o cadastro de vendedores com acesso administrativo
 - [x] Corrigir declarações duplicadas e validar o carregamento da simulação e configurações
+- [ ] Implementar matrícula global/personalizada, desconto de material por curso e condição especial sobre o subtotal
+- [ ] Validar permissões, auditoria, propostas antigas e cálculo sincronizado
