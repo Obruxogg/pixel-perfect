@@ -1349,3 +1349,352 @@ export const toggleCatalogItemStatus = createServerFn({ method: "POST" })
     }
   });
 
+// ==========================================
+// INTERAÇÃO MANUAL (Ligação, Reunião, Nota)
+// ==========================================
+export const logStudentInteraction = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .validator((input: unknown) =>
+    z.object({
+      studentId: z.string().uuid(),
+      kind: z.enum(["call", "meeting", "note", "whatsapp", "email", "visit"]),
+      notes: z.string().min(2).max(2000),
+      followupAt: z.string().optional(),
+      followupNotes: z.string().max(500).optional(),
+    }).parse(input)
+  )
+  .handler(async ({ data, context }) => {
+    const db = context.supabase;
+
+    const kindLabels: Record<string, string> = {
+      call: "Ligação registrada",
+      meeting: "Reunião realizada",
+      note: "Anotação",
+      whatsapp: "Mensagem WhatsApp",
+      email: "E-mail enviado",
+      visit: "Visita presencial",
+    };
+
+    const { data: interaction, error } = await db.from("student_interactions").insert({
+      student_id: data.studentId,
+      user_id: context.userId,
+      kind: data.kind,
+      notes: data.notes.trim(),
+    }).select().single();
+
+    if (error) throw new Error(error.message);
+
+    // Update student last contact timestamp if it exists
+    try {
+      await db.from("students").update({ updated_at: new Date().toISOString() }).eq("id", data.studentId);
+    } catch { /* fail-safe */ }
+
+    if (data.followupAt) {
+      try {
+        await db.from("followups").insert({
+          student_id: data.studentId,
+          seller_id: context.userId,
+          due_at: data.followupAt,
+          notes: data.followupNotes || `Retorno após ${kindLabels[data.kind] || data.kind}`,
+          status: "pending",
+        });
+        await db.from("student_interactions").insert({
+          student_id: data.studentId,
+          user_id: context.userId,
+          kind: "followup_scheduled",
+          notes: `Retorno agendado para ${new Date(data.followupAt).toLocaleString("pt-BR")}${data.followupNotes ? `: ${data.followupNotes}` : ""}`,
+        });
+      } catch { /* fail-safe */ }
+    }
+
+    return { ok: true, interaction };
+  });
+
+// ==========================================
+// AGENDAMENTO DE RETORNO AVULSO (sem proposta)
+// ==========================================
+export const scheduleStandaloneFollowup = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .validator((input: unknown) =>
+    z.object({
+      studentId: z.string().uuid(),
+      dueAt: z.string().min(5),
+      notes: z.string().min(2).max(1000),
+    }).parse(input)
+  )
+  .handler(async ({ data, context }) => {
+    const db = context.supabase;
+
+    const { data: followup, error } = await db.from("followups").insert({
+      student_id: data.studentId,
+      seller_id: context.userId,
+      due_at: data.dueAt,
+      notes: data.notes.trim(),
+      status: "pending",
+    }).select().single();
+
+    if (error) throw new Error(error.message);
+
+    await db.from("student_interactions").insert({
+      student_id: data.studentId,
+      user_id: context.userId,
+      kind: "followup_scheduled",
+      notes: `Retorno agendado para ${new Date(data.dueAt).toLocaleString("pt-BR")}: "${data.notes}"`,
+    });
+
+    return { ok: true, followup };
+  });
+
+// ==========================================
+// RELATÓRIOS — dados agregados
+// ==========================================
+export const getReportsData = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .validator((input: unknown) =>
+    z.object({
+      startDate: z.string().optional(),
+      endDate: z.string().optional(),
+      sellerId: z.string().uuid().optional(),
+    }).parse(input)
+  )
+  .handler(async ({ data, context }) => {
+    const db = context.supabase;
+
+    const { data: roles } = await db.from("user_roles").select("role").eq("user_id", context.userId);
+    const userRoles = (roles ?? []).map((r) => r.role);
+    const isAdmin = userRoles.includes("admin");
+    const isManager = userRoles.includes("manager");
+    const isSeller = !isAdmin && !isManager;
+
+    const start = data.startDate ? new Date(data.startDate).toISOString() : new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString();
+    const end = data.endDate ? new Date(data.endDate + "T23:59:59").toISOString() : new Date().toISOString();
+
+    let proposalsQuery = db.from("proposals").select("*").gte("created_at", start).lte("created_at", end);
+    let followupsQuery = db.from("followups").select("*").gte("created_at", start).lte("created_at", end);
+    let interactionsQuery = db.from("student_interactions").select("*").gte("created_at", start).lte("created_at", end);
+
+    if (isSeller) {
+      proposalsQuery = proposalsQuery.eq("seller_id", context.userId);
+      followupsQuery = followupsQuery.eq("seller_id", context.userId);
+      interactionsQuery = interactionsQuery.eq("user_id", context.userId);
+    } else if (data.sellerId) {
+      proposalsQuery = proposalsQuery.eq("seller_id", data.sellerId);
+      followupsQuery = followupsQuery.eq("seller_id", data.sellerId);
+      interactionsQuery = interactionsQuery.eq("user_id", data.sellerId);
+    }
+
+    const [proposalsRes, followupsRes, interactionsRes, profilesRes, rolesRes, studentsRes] = await Promise.all([
+      proposalsQuery,
+      followupsQuery,
+      interactionsQuery,
+      isSeller ? Promise.resolve({ data: null }) : db.from("profiles").select("id, full_name, status"),
+      isSeller ? Promise.resolve({ data: null }) : db.from("user_roles").select("*"),
+      db.from("students").select("id, owner_id, created_at").gte("created_at", start).lte("created_at", end),
+    ]);
+
+    const proposals = proposalsRes.data ?? [];
+    const followups = followupsRes.data ?? [];
+    const interactions = interactionsRes.data ?? [];
+    const allProfiles = profilesRes.data ?? [];
+    const allRoles = rolesRes.data ?? [];
+    const students = studentsRes.data ?? [];
+
+    const totalRevenue = proposals.filter((p) => p.status === "approved").reduce((acc, p) => acc + Number(p.final_price || 0), 0);
+    const totalProposals = proposals.length;
+    const closedProposals = proposals.filter((p) => p.status === "approved").length;
+    const conversionRate = totalProposals > 0 ? Math.round((closedProposals / totalProposals) * 100) : 0;
+    const avgTicket = closedProposals > 0 ? totalRevenue / closedProposals : 0;
+    const totalDiscountGiven = proposals.filter((p) => p.status === "approved").reduce((acc, p) => acc + Number(p.discount_amount || 0), 0);
+
+    // By seller breakdown (for manager/admin)
+    const sellerBreakdown = isSeller ? [] : allProfiles
+      .filter((p) => {
+        const role = (allRoles as any[]).find((r) => r.user_id === p.id)?.role;
+        return role === "seller";
+      })
+      .map((p) => {
+        const sellerProposals = proposals.filter((pr) => pr.seller_id === p.id);
+        const sellerClosed = sellerProposals.filter((pr) => pr.status === "approved");
+        const sellerRevenue = sellerClosed.reduce((acc, pr) => acc + Number(pr.final_price || 0), 0);
+        const sellerConversion = sellerProposals.length > 0 ? Math.round((sellerClosed.length / sellerProposals.length) * 100) : 0;
+        const sellerNewContacts = students.filter((s) => s.owner_id === p.id).length;
+
+        return {
+          id: p.id,
+          name: p.full_name,
+          status: p.status,
+          proposals: sellerProposals.length,
+          closed: sellerClosed.length,
+          revenue: sellerRevenue,
+          conversion: sellerConversion,
+          newContacts: sellerNewContacts,
+          followups: followups.filter((f) => f.seller_id === p.id).length,
+          avgTicket: sellerClosed.length > 0 ? sellerRevenue / sellerClosed.length : 0,
+        };
+      })
+      .sort((a, b) => b.revenue - a.revenue);
+
+    // By course
+    const courseCounts: Record<string, { name: string; count: number; revenue: number }> = {};
+    for (const p of proposals.filter((p) => p.status === "approved")) {
+      const key = p.course_name || "Desconhecido";
+      if (!courseCounts[key]) courseCounts[key] = { name: key, count: 0, revenue: 0 };
+      courseCounts[key].count++;
+      courseCounts[key].revenue += Number(p.final_price || 0);
+    }
+    const byCourse = Object.values(courseCounts).sort((a, b) => b.count - a.count).slice(0, 10);
+
+    // By payment method
+    const methodCounts: Record<string, { name: string; count: number; revenue: number }> = {};
+    for (const p of proposals.filter((p) => p.status === "approved")) {
+      const key = p.payment_method_name || "Desconhecido";
+      if (!methodCounts[key]) methodCounts[key] = { name: key, count: 0, revenue: 0 };
+      methodCounts[key].count++;
+      methodCounts[key].revenue += Number(p.final_price || 0);
+    }
+    const byPaymentMethod = Object.values(methodCounts).sort((a, b) => b.count - a.count);
+
+    // Timeline (proposals per day)
+    const byDay: Record<string, { date: string; proposals: number; closed: number; revenue: number }> = {};
+    for (const p of proposals) {
+      const day = p.created_at?.slice(0, 10) ?? "unknown";
+      if (!byDay[day]) byDay[day] = { date: day, proposals: 0, closed: 0, revenue: 0 };
+      byDay[day].proposals++;
+      if (p.status === "approved") {
+        byDay[day].closed++;
+        byDay[day].revenue += Number(p.final_price || 0);
+      }
+    }
+    const dailyTimeline = Object.values(byDay).sort((a, b) => a.date.localeCompare(b.date));
+
+    return {
+      summary: {
+        totalRevenue,
+        totalProposals,
+        closedProposals,
+        conversionRate,
+        avgTicket,
+        totalDiscountGiven,
+        newContacts: students.length,
+        totalFollowups: followups.length,
+        completedFollowups: followups.filter((f) => f.status === "completed").length,
+        totalInteractions: interactions.length,
+      },
+      sellerBreakdown,
+      byCourse,
+      byPaymentMethod,
+      dailyTimeline,
+    };
+  });
+
+// ==========================================
+// FORMAS DE PAGAMENTO — CRUD via interface
+// ==========================================
+export const savePaymentMethod = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .validator((input: unknown) =>
+    z.object({
+      id: z.string().uuid().optional(),
+      name: z.string().min(2).max(120),
+      description: z.string().max(300).optional(),
+      allowsInstallments: z.boolean().optional().default(true),
+    }).parse(input)
+  )
+  .handler(async ({ data, context }) => {
+    const { data: isAdmin } = await context.supabase.rpc("has_role", { _user_id: context.userId, _role: "admin" });
+    const { data: isManager } = await context.supabase.rpc("has_role", { _user_id: context.userId, _role: "manager" });
+    if (!isAdmin && !isManager) throw new Error("Somente administradores e gerentes podem gerenciar formas de pagamento.");
+
+    const db = context.supabase as any;
+    if (data.id) {
+      const { data: updated, error } = await db.from("payment_methods").update({
+        name: data.name,
+        description: data.description || null,
+      }).eq("id", data.id).select().single();
+      if (error) throw new Error(error.message);
+      return { ok: true, method: updated };
+    } else {
+      const { count } = await db.from("payment_methods").select("id", { count: "exact", head: true });
+      const { data: created, error } = await db.from("payment_methods").insert({
+        name: data.name,
+        description: data.description || null,
+        sort_order: Number(count ?? 0) + 1,
+      }).select().single();
+      if (error) throw new Error(error.message);
+      return { ok: true, method: created };
+    }
+  });
+
+// ==========================================
+// PARCELAMENTOS — CRUD via interface
+// ==========================================
+export const saveInstallmentOption = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .validator((input: unknown) =>
+    z.object({
+      id: z.string().uuid().optional(),
+      paymentMethodId: z.string().uuid(),
+      label: z.string().min(1).max(80),
+      installments: z.number().int().min(1).max(360),
+      interestRate: z.number().nonnegative().optional().default(0),
+    }).parse(input)
+  )
+  .handler(async ({ data, context }) => {
+    const { data: isAdmin } = await context.supabase.rpc("has_role", { _user_id: context.userId, _role: "admin" });
+    const { data: isManager } = await context.supabase.rpc("has_role", { _user_id: context.userId, _role: "manager" });
+    if (!isAdmin && !isManager) throw new Error("Somente administradores e gerentes podem gerenciar parcelamentos.");
+
+    const db = context.supabase as any;
+    if (data.id) {
+      const { data: updated, error } = await db.from("installment_options").update({
+        label: data.label,
+        installments: data.installments,
+        interest_rate: data.interestRate ?? 0,
+      }).eq("id", data.id).select().single();
+      if (error) throw new Error(error.message);
+      return { ok: true, installment: updated };
+    } else {
+      const { count } = await db.from("installment_options").select("id", { count: "exact", head: true });
+      const { data: created, error } = await db.from("installment_options").insert({
+        payment_method_id: data.paymentMethodId,
+        label: data.label,
+        installments: data.installments,
+        interest_rate: data.interestRate ?? 0,
+        sort_order: Number(count ?? 0) + 1,
+      }).select().single();
+      if (error) throw new Error(error.message);
+      return { ok: true, installment: created };
+    }
+  });
+
+// ==========================================
+// META MENSAL CONFIGURÁVEL POR VENDEDOR
+// ==========================================
+export const updateSellerGoal = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .validator((input: unknown) =>
+    z.object({
+      sellerId: z.string().uuid().optional(),
+      monthlyGoal: z.number().int().min(1).max(9999),
+    }).parse(input)
+  )
+  .handler(async ({ data, context }) => {
+    const db = context.supabase;
+    const targetId = data.sellerId || context.userId;
+
+    // Check permission: only admin/manager can set another seller's goal
+    if (data.sellerId && data.sellerId !== context.userId) {
+      const { data: isAdmin } = await db.rpc("has_role", { _user_id: context.userId, _role: "admin" });
+      const { data: isManager } = await db.rpc("has_role", { _user_id: context.userId, _role: "manager" });
+      if (!isAdmin && !isManager) throw new Error("Somente gerentes e administradores podem definir metas de outros vendedores.");
+    }
+
+    const { data: current } = await db.from("profiles").select("preferences").eq("id", targetId).single();
+    const prefs = ((current?.preferences as Record<string, any>) || {});
+    prefs["monthly_goal"] = data.monthlyGoal;
+
+    const { data: updated, error } = await (db as any).from("profiles").update({ preferences: prefs }).eq("id", targetId).select().single();
+    if (error) throw new Error(error.message);
+
+    return { ok: true, profile: updated, monthlyGoal: data.monthlyGoal };
+  });

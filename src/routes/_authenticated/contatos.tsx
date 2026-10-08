@@ -254,7 +254,13 @@ function ContactsPage() {
                     </td>
                   )}
                   <td>
-                    <strong className="block font-semibold text-foreground">{s.full_name}</strong>
+                    <Link
+                      to="/aluno/$id"
+                      params={{ id: s.id }}
+                      className="font-semibold text-foreground hover:text-primary hover:underline transition-colors"
+                    >
+                      {s.full_name}
+                    </Link>
                   </td>
                   <td>
                     <a

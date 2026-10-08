@@ -12,6 +12,7 @@ import {
   UserCheck,
   Briefcase,
   ChevronRight,
+  BarChart3,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -78,6 +79,12 @@ export function AppShell({
       to: "/propostas",
       label: isSeller ? "Minhas Propostas" : "Propostas da Equipe",
       icon: FileText,
+      show: true,
+    },
+    {
+      to: "/relatorios",
+      label: "Relatórios",
+      icon: BarChart3,
       show: true,
     },
     {

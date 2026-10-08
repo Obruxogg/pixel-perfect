@@ -18,7 +18,9 @@ import { Route as AuthenticatedContatosRouteImport } from './routes/_authenticat
 import { Route as AuthenticatedCrmRouteImport } from './routes/_authenticated/crm'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
 import { Route as AuthenticatedPropostasRouteImport } from './routes/_authenticated/propostas'
+import { Route as AuthenticatedRelatoriosRouteImport } from './routes/_authenticated/relatorios'
 import { Route as AuthenticatedSimulacaoRouteImport } from './routes/_authenticated/simulacao'
+import { Route as AuthenticatedAlunoIdRouteImport } from './routes/_authenticated/aluno.$id'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -65,9 +67,19 @@ const AuthenticatedPropostasRoute = AuthenticatedPropostasRouteImport.update({
   path: '/propostas',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedRelatoriosRoute = AuthenticatedRelatoriosRouteImport.update({
+  id: '/relatorios',
+  path: '/relatorios',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedSimulacaoRoute = AuthenticatedSimulacaoRouteImport.update({
   id: '/simulacao',
   path: '/simulacao',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedAlunoIdRoute = AuthenticatedAlunoIdRouteImport.update({
+  id: '/aluno/$id',
+  path: '/aluno/$id',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
 
@@ -80,7 +92,9 @@ export interface FileRoutesByFullPath {
   '/crm': typeof AuthenticatedCrmRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/propostas': typeof AuthenticatedPropostasRoute
+  '/relatorios': typeof AuthenticatedRelatoriosRoute
   '/simulacao': typeof AuthenticatedSimulacaoRoute
+  '/aluno/$id': typeof AuthenticatedAlunoIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -91,7 +105,9 @@ export interface FileRoutesByTo {
   '/crm': typeof AuthenticatedCrmRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/propostas': typeof AuthenticatedPropostasRoute
+  '/relatorios': typeof AuthenticatedRelatoriosRoute
   '/simulacao': typeof AuthenticatedSimulacaoRoute
+  '/aluno/$id': typeof AuthenticatedAlunoIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -104,7 +120,9 @@ export interface FileRoutesById {
   '/_authenticated/crm': typeof AuthenticatedCrmRoute
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
   '/_authenticated/propostas': typeof AuthenticatedPropostasRoute
+  '/_authenticated/relatorios': typeof AuthenticatedRelatoriosRoute
   '/_authenticated/simulacao': typeof AuthenticatedSimulacaoRoute
+  '/_authenticated/aluno/$id': typeof AuthenticatedAlunoIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -117,7 +135,9 @@ export interface FileRouteTypes {
     | '/crm'
     | '/dashboard'
     | '/propostas'
+    | '/relatorios'
     | '/simulacao'
+    | '/aluno/$id'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -128,7 +148,9 @@ export interface FileRouteTypes {
     | '/crm'
     | '/dashboard'
     | '/propostas'
+    | '/relatorios'
     | '/simulacao'
+    | '/aluno/$id'
   id:
     | '__root__'
     | '/'
@@ -140,7 +162,9 @@ export interface FileRouteTypes {
     | '/_authenticated/crm'
     | '/_authenticated/dashboard'
     | '/_authenticated/propostas'
+    | '/_authenticated/relatorios'
     | '/_authenticated/simulacao'
+    | '/_authenticated/aluno/$id'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -215,11 +239,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedPropostasRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/relatorios': {
+      id: '/_authenticated/relatorios'
+      path: '/relatorios'
+      fullPath: '/relatorios'
+      preLoaderRoute: typeof AuthenticatedRelatoriosRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/simulacao': {
       id: '/_authenticated/simulacao'
       path: '/simulacao'
       fullPath: '/simulacao'
       preLoaderRoute: typeof AuthenticatedSimulacaoRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/aluno/$id': {
+      id: '/_authenticated/aluno/$id'
+      path: '/aluno/$id'
+      fullPath: '/aluno/$id'
+      preLoaderRoute: typeof AuthenticatedAlunoIdRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
   }
@@ -231,7 +269,9 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedCrmRoute: typeof AuthenticatedCrmRoute
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
   AuthenticatedPropostasRoute: typeof AuthenticatedPropostasRoute
+  AuthenticatedRelatoriosRoute: typeof AuthenticatedRelatoriosRoute
   AuthenticatedSimulacaoRoute: typeof AuthenticatedSimulacaoRoute
+  AuthenticatedAlunoIdRoute: typeof AuthenticatedAlunoIdRoute
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
@@ -240,7 +280,9 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedCrmRoute: AuthenticatedCrmRoute,
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
   AuthenticatedPropostasRoute: AuthenticatedPropostasRoute,
+  AuthenticatedRelatoriosRoute: AuthenticatedRelatoriosRoute,
   AuthenticatedSimulacaoRoute: AuthenticatedSimulacaoRoute,
+  AuthenticatedAlunoIdRoute: AuthenticatedAlunoIdRoute,
 }
 
 const AuthenticatedRouteRouteWithChildren =
