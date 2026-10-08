@@ -46,7 +46,11 @@ export function EnrollmentSettings({ data, courseOnly = false }: { data: Workspa
   const canEdit = data.isAdmin || data.isManager;
   useEffect(() => setGlobal(String(data.enrollmentFee)), [data.enrollmentFee]);
   const courses = data.courses.filter(c => (!area || c.area_id === area) && c.name.toLocaleLowerCase().includes(search.toLocaleLowerCase()) && (!origin || (origin === "global" ? c.enrollment_fee === null : c.enrollment_fee !== null)));
-  async function commit(input: Parameters<typeof save>[0]["data"]) {
+  async function commit(input:
+    | { action: "global"; value: number }
+    | { action: "bulk"; courseIds: string[]; value: number | null }
+    | { action: "course"; courseId: string; value: number | null; material: number }
+  ) {
     setBusy(true);
     try { await save({ data: input }); await refresh(); toast.success("Valores salvos com sucesso."); setPending(null); setEditing(null); setSelected([]); }
     catch (error) { toast.error(error instanceof Error ? error.message : "Não foi possível salvar."); }
