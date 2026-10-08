@@ -25,7 +25,7 @@ import {
 import { toast } from "sonner";
 import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
-import { saveCatalogItem, manageSeller, transferStudents } from "@/lib/crm.functions";
+import { saveCatalogItem, manageSeller, transferStudents, toggleCatalogItemStatus } from "@/lib/crm.functions";
 import { brl, formatPhone, useRefreshWorkspace, useWorkspace } from "@/lib/use-workspace";
 
 export const Route = createFileRoute("/_authenticated/configuracoes")({
@@ -47,8 +47,22 @@ function SettingsPage() {
   const save = useServerFn(saveCatalogItem);
   const sellerAction = useServerFn(manageSeller);
   const transfer = useServerFn(transferStudents);
+  const toggleItem = useServerFn(toggleCatalogItemStatus);
   const refresh = useRefreshWorkspace();
   const navigate = useNavigate();
+
+  async function handleToggleStatus(table: "courses" | "areas" | "discount_rules" | "commercial_conditions" | "crm_stages" | "commercial_triggers", id: string) {
+    setBusy(true);
+    try {
+      await toggleItem({ data: { table, id } });
+      await refresh();
+      toast.success("Status alterado com sucesso!");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Erro ao alterar status.");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   // Active Tab
   const [activeTab, setActiveTab] = useState<"team" | "managers" | "conditions" | "triggers" | "courses" | "discounts" | "crm">("team");
@@ -621,12 +635,13 @@ function SettingsPage() {
                   <th>Desconto</th>
                   <th>Validade</th>
                   <th>Status</th>
+                  <th>Ação</th>
                 </tr>
               </thead>
               <tbody>
                 {(data.conditions as any[]).length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="text-center text-muted-foreground py-6 text-sm">
+                    <td colSpan={8} className="text-center text-muted-foreground py-6 text-sm">
                       Nenhuma condição cadastrada. Crie a primeira condição acima.
                     </td>
                   </tr>
@@ -650,6 +665,17 @@ function SettingsPage() {
                           <span className={`status-pill ${cond.status === "active" ? "bg-emerald-100 text-emerald-800" : "bg-muted text-muted-foreground"}`}>
                             {cond.status === "active" ? "Ativa" : "Inativa"}
                           </span>
+                        </td>
+                        <td>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className={`text-xs font-medium ${cond.status === "active" ? "text-amber-700 hover:text-amber-800 hover:bg-amber-50" : "text-emerald-700 hover:text-emerald-800 hover:bg-emerald-50"}`}
+                            onClick={() => handleToggleStatus("commercial_conditions", cond.id)}
+                            disabled={busy}
+                          >
+                            {cond.status === "active" ? "Inativar" : "Ativar"}
+                          </Button>
                         </td>
                       </tr>
                     );

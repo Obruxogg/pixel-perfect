@@ -69,7 +69,7 @@ async function getAdminClient() {
 
 export const bootstrapProfile = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: { fullName?: string; initialRole?: "admin" | "manager" | "seller" }) =>
+  .validator((input: { fullName?: string; initialRole?: "admin" | "manager" | "seller" }) =>
     z.object({ fullName: z.string().max(120).optional(), initialRole: z.enum(["admin", "manager", "seller"]).optional() }).parse(input)
   )
   .handler(async ({ data, context }) => {
@@ -116,14 +116,14 @@ export const getWorkspace = createServerFn({ method: "GET" })
     ] = await Promise.all([
       db.from("profiles").select("*").eq("id", context.userId).maybeSingle(),
       db.from("user_roles").select("role").eq("user_id", context.userId),
-      db.from("areas").select("*").eq("status", "active").order("sort_order"),
-      db.from("courses").select("*").eq("status", "active").order("sort_order"),
-      db.from("payment_methods").select("*").eq("status", "active").order("sort_order"),
-      db.from("installment_options").select("*").eq("status", "active").order("sort_order"),
-      db.from("course_prices").select("*").eq("status", "active"),
-      db.from("discount_rules").select("*").eq("status", "active"),
-      db.from("commercial_conditions").select("*").eq("status", "active"),
-      db.from("crm_stages").select("*").eq("status", "active").order("sort_order"),
+      db.from("areas").select("*").order("sort_order"),
+      db.from("courses").select("*").order("sort_order"),
+      db.from("payment_methods").select("*").order("sort_order"),
+      db.from("installment_options").select("*").order("sort_order"),
+      db.from("course_prices").select("*"),
+      db.from("discount_rules").select("*"),
+      db.from("commercial_conditions").select("*"),
+      db.from("crm_stages").select("*").order("sort_order"),
       db.from("profiles").select("*"),
       db.from("user_roles").select("*"),
       db.from("teams").select("*").eq("status", "active"),
@@ -223,7 +223,7 @@ export const getWorkspace = createServerFn({ method: "GET" })
 
 export const searchStudentByWhatsapp = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input) => z.object({ whatsapp: z.string().min(5) }).parse(input))
+  .validator((input) => z.object({ whatsapp: z.string().min(5) }).parse(input))
   .handler(async ({ data, context }) => {
     const cleanNumber = data.whatsapp.replace(/\D/g, "");
     if (!cleanNumber) return { found: false, student: null };
@@ -267,7 +267,7 @@ const proposalInput = z.object({
 
 export const createProposal = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input) => proposalInput.parse(input))
+  .validator((input) => proposalInput.parse(input))
   .handler(async ({ data, context }) => {
     const db = context.supabase;
 
@@ -374,7 +374,7 @@ export const createProposal = createServerFn({ method: "POST" })
     finalPrice = Math.round(finalPrice * 100) / 100;
     const finalDiscountAmount = Math.round((originalPrice - finalPrice) * 100) / 100;
     const countInstallments = Math.max(1, Number(installment.installments) || 1);
-    const installmentValue = Math.floor((finalPrice / countInstallments) * 100) / 100;
+    const installmentValue = Math.round((finalPrice / countInstallments) * 100) / 100;
 
     // Student handling (Prevent duplication per Requirement 8)
     const cleanWhatsapp = data.whatsapp.replace(/\D/g, "");
@@ -558,7 +558,7 @@ export const createProposal = createServerFn({ method: "POST" })
 // Requirement 16: "FECHAR AGORA"
 export const closeSaleNow = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input) => z.object({ proposalId: z.string().uuid(), notes: z.string().max(500).optional() }).parse(input))
+  .validator((input) => z.object({ proposalId: z.string().uuid(), notes: z.string().max(500).optional() }).parse(input))
   .handler(async ({ data, context }) => {
     const db = context.supabase;
 
@@ -636,7 +636,7 @@ export const closeSaleNow = createServerFn({ method: "POST" })
 // Requirement 17 & 18: "DEIXAR PARA DEPOIS" (Agendar Retorno)
 export const deferProposalFollowup = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator(
+  .validator(
     z.object({
       proposalId: z.string().uuid(),
       dueAt: z.string().min(5),
@@ -701,7 +701,7 @@ export const deferProposalFollowup = createServerFn({ method: "POST" })
 // Requirement 27: Transferência de contatos
 export const transferStudents = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator(
+  .validator(
     z.object({
       studentIds: z.array(z.string().uuid()).min(1),
       targetSellerId: z.string().uuid().nullable(),
@@ -749,7 +749,7 @@ export const transferStudents = createServerFn({ method: "POST" })
 // Requirement 4: Gerenciamento e Pré-Cadastro de Vendedores
 export const manageSeller = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({
       action: z.enum(["create", "update", "toggle_status", "reset_password"]),
       sellerId: z.string().uuid().optional(),
@@ -925,7 +925,7 @@ export const manageSeller = createServerFn({ method: "POST" })
 
 // Resolver login por E-mail ou Código de Acesso do Vendedor (ex: VD-1024)
 export const resolveSellerLogin = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({
       identifier: z.string().min(1).max(120),
     }).parse(input)
@@ -967,7 +967,7 @@ export const resolveSellerLogin = createServerFn({ method: "POST" })
 // Cadastro rápido de contato pelo Vendedor direto no Dashboard
 export const createQuickStudent = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({
       fullName: z.string().min(2).max(120),
       whatsapp: z.string().min(8).max(30),
@@ -1017,10 +1017,12 @@ export const createQuickStudent = createServerFn({ method: "POST" })
 // Conclusão rápida de Retorno Comercial (Follow-up) pelo Vendedor
 export const completeFollowup = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({
       followupId: z.string().uuid(),
       notes: z.string().max(500).optional(),
+      nextDueAt: z.string().optional(),
+      nextNotes: z.string().max(500).optional(),
     }).parse(input)
   )
   .handler(async ({ data, context }) => {
@@ -1045,6 +1047,23 @@ export const completeFollowup = createServerFn({ method: "POST" })
         kind: "followup_completed",
         notes: `Retorno comercial concluído: ${data.notes || "Contato realizado com sucesso."}`,
       });
+
+      if (data.nextDueAt) {
+        await db.from("followups").insert({
+          student_id: updated.student_id,
+          seller_id: context.userId,
+          due_at: data.nextDueAt,
+          notes: data.nextNotes?.trim() || "Novo retorno comercial agendado",
+          status: "pending",
+        });
+
+        await db.from("student_interactions").insert({
+          student_id: updated.student_id,
+          user_id: context.userId,
+          kind: "followup_scheduled",
+          notes: `Novo retorno agendado para ${new Date(data.nextDueAt).toLocaleString("pt-BR")}: ${data.nextNotes || ""}`,
+        });
+      }
     }
 
     return { ok: true, followup: updated };
@@ -1052,23 +1071,35 @@ export const completeFollowup = createServerFn({ method: "POST" })
 
 export const moveStudent = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input) => z.object({ studentId: z.string().uuid(), stageId: z.string().uuid() }).parse(input))
+  .validator((input) =>
+    z.object({
+      studentId: z.string().uuid(),
+      stageId: z.string().uuid(),
+      lostReason: z.string().optional(),
+      lostNotes: z.string().optional(),
+    }).parse(input)
+  )
   .handler(async ({ data, context }) => {
     const before = await context.supabase.from("students").select("crm_stage_id").eq("id", data.studentId).single();
     const result = await context.supabase.from("students").update({ crm_stage_id: data.stageId }).eq("id", data.studentId).select().single();
     if (result.error) throw new Error("Não foi possível mover o contato.");
+    const notesText = data.lostReason
+      ? `Contato movido para Perdido. Motivo: ${data.lostReason}${data.lostNotes ? ` (${data.lostNotes})` : ""}`
+      : undefined;
+
     await context.supabase.from("student_interactions").insert({
       student_id: data.studentId,
       user_id: context.userId,
-      kind: "stage_changed",
-      metadata: { from: before.data?.crm_stage_id, to: data.stageId },
+      kind: data.lostReason ? "lead_lost" : "stage_changed",
+      notes: notesText,
+      metadata: { from: before.data?.crm_stage_id, to: data.stageId, lost_reason: data.lostReason || null },
     });
     return result.data;
   });
 
 export const updateProposalTimer = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({
       proposalId: z.string().uuid(),
       action: z.enum(["pause", "resume", "extend30", "extend60", "complete", "cancel"]),
@@ -1122,7 +1153,7 @@ export const updateProposalTimer = createServerFn({ method: "POST" })
 
 export const saveCatalogItem = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: unknown) =>
+  .validator((input: unknown) =>
     z.object({
       type: z.enum(["area", "course", "stage", "trigger", "discount", "condition"]),
       name: z.string().min(2).max(120),
@@ -1272,7 +1303,7 @@ export const saveCatalogItem = createServerFn({ method: "POST" })
 
 export const getStudentTimeline = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input) => z.object({ studentId: z.string().uuid() }).parse(input))
+  .validator((input) => z.object({ studentId: z.string().uuid() }).parse(input))
   .handler(async ({ data, context }) => {
     const db = context.supabase;
 
@@ -1288,3 +1319,33 @@ export const getStudentTimeline = createServerFn({ method: "POST" })
       followups: followupsRes.data ?? [],
     };
   });
+
+export const toggleCatalogItemStatus = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .validator((input: unknown) =>
+    z.object({
+      table: z.enum(["courses", "areas", "discount_rules", "commercial_conditions", "crm_stages", "commercial_triggers"]),
+      id: z.string().uuid(),
+    }).parse(input)
+  )
+  .handler(async ({ data, context }) => {
+    const { data: isAdmin } = await context.supabase.rpc("has_role", { _user_id: context.userId, _role: "admin" });
+    const { data: isManager } = await context.supabase.rpc("has_role", { _user_id: context.userId, _role: "manager" });
+
+    if (!isAdmin && !isManager) throw new Error("Somente administradores e gerentes podem alterar o status de itens.");
+
+    if (data.table === "commercial_triggers") {
+      const { data: current } = await (context.supabase as any).from("commercial_triggers").select("is_active").eq("id", data.id).single();
+      const newActive = !(current?.is_active ?? true);
+      const { error } = await (context.supabase as any).from("commercial_triggers").update({ is_active: newActive }).eq("id", data.id);
+      if (error) throw new Error(error.message);
+      return { ok: true, active: newActive };
+    } else {
+      const { data: current } = await (context.supabase as any).from(data.table).select("status").eq("id", data.id).single();
+      const newStatus = current?.status === "active" ? "inactive" : "active";
+      const { error } = await (context.supabase as any).from(data.table).update({ status: newStatus }).eq("id", data.id);
+      if (error) throw new Error(error.message);
+      return { ok: true, status: newStatus };
+    }
+  });
+

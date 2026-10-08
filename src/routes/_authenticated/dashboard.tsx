@@ -100,12 +100,32 @@ function SellerDashboard({ data }: { data: NonNullable<ReturnType<typeof useWork
   const openProposals = myProposals.filter((p) => ["sent", "viewed", "negotiation"].includes(p.status));
   const awaitingResponse = myProposals.filter((p) => p.status === "awaiting_response");
 
-  const todayFollowups = myFollowups.filter(
-    (f) => new Date(f.due_at).toDateString() === todayStr && f.status === "pending"
-  );
+  const [followupTab, setFollowupTab] = useState<"all" | "overdue" | "today" | "upcoming">("all");
+
   const overdueFollowups = myFollowups.filter(
     (f) => new Date(f.due_at).getTime() < now && f.status === "pending"
   );
+  const todayFollowups = myFollowups.filter(
+    (f) => new Date(f.due_at).toDateString() === todayStr && new Date(f.due_at).getTime() >= now && f.status === "pending"
+  );
+  const upcomingFollowups = myFollowups.filter((f) => {
+    const d = new Date(f.due_at);
+    const endToday = new Date();
+    endToday.setHours(23, 59, 59, 999);
+    return d.getTime() > endToday.getTime() && f.status === "pending";
+  });
+
+  const displayedFollowups = myFollowups.filter((f) => {
+    if (f.status !== "pending") return false;
+    if (followupTab === "overdue") return new Date(f.due_at).getTime() < now;
+    if (followupTab === "today") return new Date(f.due_at).toDateString() === todayStr && new Date(f.due_at).getTime() >= now;
+    if (followupTab === "upcoming") {
+      const endToday = new Date();
+      endToday.setHours(23, 59, 59, 999);
+      return new Date(f.due_at).getTime() > endToday.getTime();
+    }
+    return true;
+  });
 
   // Financial total closed
   const totalRevenue = closedProposals.reduce((acc, curr) => acc + Number(curr.final_price || 0), 0);
@@ -509,10 +529,49 @@ Para confirmar sua matrícula agora, basta responder esta mensagem!`;
             </Link>
           </div>
 
+          {/* Followup Filter Tabs */}
+          <div className="mb-3 flex flex-wrap gap-1 text-xs">
+            <button
+              type="button"
+              onClick={() => setFollowupTab("all")}
+              className={`px-2.5 py-1 rounded-md font-semibold transition-colors ${
+                followupTab === "all" ? "bg-primary text-primary-foreground font-bold" : "bg-muted text-muted-foreground hover:bg-muted/80"
+              }`}
+            >
+              Todas ({myFollowups.filter((f) => f.status === "pending").length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setFollowupTab("overdue")}
+              className={`px-2.5 py-1 rounded-md font-semibold transition-colors ${
+                followupTab === "overdue" ? "bg-destructive text-destructive-foreground font-bold" : "bg-destructive/10 text-destructive hover:bg-destructive/20"
+              }`}
+            >
+              🔴 Atrasados ({overdueFollowups.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setFollowupTab("today")}
+              className={`px-2.5 py-1 rounded-md font-semibold transition-colors ${
+                followupTab === "today" ? "bg-amber-500 text-white font-bold" : "bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300 hover:bg-amber-200"
+              }`}
+            >
+              🟡 De Hoje ({todayFollowups.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setFollowupTab("upcoming")}
+              className={`px-2.5 py-1 rounded-md font-semibold transition-colors ${
+                followupTab === "upcoming" ? "bg-blue-600 text-white font-bold" : "bg-blue-50 text-blue-800 dark:bg-blue-950/40 dark:text-blue-300 hover:bg-blue-100"
+              }`}
+            >
+              🟢 Próximos ({upcomingFollowups.length})
+            </button>
+          </div>
+
           <div className="space-y-3">
-            {myFollowups
-              .filter((f) => f.status === "pending")
-              .slice(0, 6)
+            {displayedFollowups
+              .slice(0, 8)
               .map((f) => {
                 const student = data.students.find((s) => s.id === f.student_id);
                 const isOverdue = new Date(f.due_at).getTime() < now;
