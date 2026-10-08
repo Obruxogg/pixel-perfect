@@ -53,7 +53,7 @@ function SettingsPage() {
   const refresh = useRefreshWorkspace();
   const navigate = useNavigate();
 
-  async function handleToggleStatus(table: "courses" | "areas" | "discount_rules" | "commercial_conditions" | "crm_stages" | "commercial_triggers", id: string) {
+  async function handleToggleStatus(table: "courses" | "areas" | "discount_rules" | "commercial_conditions" | "crm_stages" | "commercial_triggers" | "payment_methods" | "installment_options", id: string) {
     setBusy(true);
     try {
       await toggleItem({ data: { table, id } });

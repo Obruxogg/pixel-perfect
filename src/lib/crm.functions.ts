@@ -1091,8 +1091,8 @@ export const moveStudent = createServerFn({ method: "POST" })
       student_id: data.studentId,
       user_id: context.userId,
       kind: data.lostReason ? "lead_lost" : "stage_changed",
-      notes: notesText,
-      metadata: { from: before.data?.crm_stage_id, to: data.stageId, lost_reason: data.lostReason || null },
+      notes: notesText ?? null,
+      metadata: { from: before.data?.crm_stage_id ?? null, to: data.stageId, lost_reason: data.lostReason || null },
     });
     return result.data;
   });

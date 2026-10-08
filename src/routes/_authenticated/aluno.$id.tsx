@@ -442,6 +442,7 @@ function StudentProfilePage() {
                 <div className="grid grid-cols-3 gap-2">
                   {(["call", "whatsapp", "meeting", "email", "note", "visit"] as const).map((k) => {
                     const m = KIND_META[k];
+                    if (!m) return null;
                     const Icon = m.icon;
                     return (
                       <button
