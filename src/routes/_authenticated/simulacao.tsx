@@ -17,6 +17,7 @@ import {
   Settings2,
 } from "lucide-react";
 import { useServerFn } from "@tanstack/react-start";
+import { calculateCommercialPrice } from "@/lib/commercial-calculation";
 import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
 import { brl, dateTime, useRefreshWorkspace, useWorkspace } from "@/lib/use-workspace";
@@ -111,7 +112,7 @@ function SimulationPage() {
 
   // Filter conditions to the selected course
   const courseConditions = (data?.conditions ?? []).filter(
-    (cond: any) => !courseId || cond.course_id === courseId
+    (cond: any) => cond.status === "active" && cond.course_id === courseId && cond.allowed_roles.some((role: string) => data?.roles.some((r) => r.role === role))
   );
 
   // Selected condition resolves payment/installment/discount automatically
@@ -129,46 +130,14 @@ function SimulationPage() {
   const discountRule = data?.discounts.find((d) => d.id === discountRuleId);
 
   // Real-time calculation engine
-  const calc = useMemo(() => {
-    const original = Number(configuredPrice?.price ?? course?.base_price ?? 0);
-    const breakdown: Array<{ name: string; kind: "percentage" | "fixed"; value: number; amount: number }> = [];
-
-    if (discountRule) {
-      const amt =
-        discountRule.kind === "percentage"
-          ? (original * Number(discountRule.value)) / 100
-          : Number(discountRule.value);
-      const capped = discountRule.max_discount != null ? Math.min(amt, Number(discountRule.max_discount)) : amt;
-      breakdown.push({
-        name: discountRule.name,
-        kind: discountRule.kind,
-        value: Number(discountRule.value),
-        amount: Math.round(capped * 100) / 100,
-      });
-    }
-
-    if (adicionalDiscount > 0) {
-      breakdown.push({
-        name: "Desconto Adicional Autorizado",
-        kind: "fixed",
-        value: adicionalDiscount,
-        amount: adicionalDiscount,
-      });
-    }
-
-    const totalDiscount = breakdown.reduce((acc, curr) => acc + curr.amount, 0);
-    let final = Math.max(0, original - totalDiscount);
-    if (discountRule?.min_final_price != null) {
-      final = Math.max(final, Number(discountRule.min_final_price));
-    }
-    final = Math.round(final * 100) / 100;
-    const economy = Math.round((original - final) * 100) / 100;
-    const count = selectedInstallment?.installments ?? 1;
-    const portion = count > 0 ? Math.floor((final / count) * 100) / 100 : final;
-    const discountPct = original > 0 ? Math.round((economy / original) * 100) : 0;
-
-    return { original, breakdown, economy, final, count, portion, discountPct };
-  }, [configuredPrice, course, discountRule, adicionalDiscount, selectedInstallment]);
+  const calc = useMemo(() => calculateCommercialPrice({
+    coursePrice: Number(configuredPrice?.price ?? course?.base_price ?? 0),
+    enrollmentFee: course ? Number(course.enrollment_fee ?? data?.enrollmentFee ?? 0) : 0,
+    materialDiscount: Number(course?.material_discount ?? 0),
+    special: discountRule ? { ...discountRule, value: Number(discountRule.value) } : null,
+    additional: adicionalDiscount,
+    installments: selectedInstallment?.installments ?? 1,
+  }), [configuredPrice, course, data?.enrollmentFee, discountRule, adicionalDiscount, selectedInstallment]);
 
   const validUntilDate = useMemo(() => new Date(Date.now() + validityMinutes * 60000), [validityMinutes]);
 
@@ -186,8 +155,7 @@ function SimulationPage() {
         paymentMethodId,
         installmentId,
         discountId: discountRuleId || undefined,
-        matriculaDiscount: 0,
-        entradaDiscount: 0,
+        conditionId,
         modularDiscounts:
           adicionalDiscount > 0
             ? [{ name: "Desconto Adicional Autorizado", kind: "fixed", value: adicionalDiscount, amount: adicionalDiscount }]
@@ -297,6 +265,7 @@ function SimulationPage() {
                 <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground block">
                   Valor Original da Formação
                 </span>
+                <div className="mt-2 text-sm">Curso: {brl.format(calc.coursePrice)} · Matrícula: + {brl.format(calc.enrollmentFee)}</div>
                 <p className="price-strike mt-1">{brl.format(calc.original)}</p>
 
                 {calc.breakdown.length > 0 && (
@@ -314,7 +283,8 @@ function SimulationPage() {
                 )}
 
                 <div className="mt-4 pt-3 border-t border-border">
-                  <div className="economy-callout w-full justify-between">
+                  <div className="flex justify-between text-sm"><span>Subtotal após material</span><b>{brl.format(calc.subtotal)}</b></div>
+            <div className="economy-callout w-full justify-between">
                     <span className="text-xs uppercase font-bold tracking-wide">Economia Total:</span>
                     <span className="text-base font-extrabold">{brl.format(calc.economy)}</span>
                   </div>
@@ -701,6 +671,7 @@ function SimulationPage() {
                       <label className="text-xs font-semibold">
                         Desconto Adicional Autorizado (R$)
                         <input
+                          disabled={data?.isSeller}
                           type="number"
                           min="0"
                           step="50"
@@ -737,8 +708,10 @@ function SimulationPage() {
           </div>
 
           <div className="mt-5 space-y-4">
+            <div className="flex justify-between text-sm"><span>Valor do curso</span><b>{brl.format(calc.coursePrice)}</b></div>
+            <div className="flex justify-between text-sm"><span>Matrícula</span><b>+ {brl.format(calc.enrollmentFee)}</b></div>
             <div className="flex items-baseline justify-between">
-              <span className="text-sm text-muted-foreground">Valor Original:</span>
+              <span className="text-sm text-muted-foreground">Total com matrícula:</span>
               <span className="text-base font-semibold line-through text-muted-foreground">{brl.format(calc.original)}</span>
             </div>
 

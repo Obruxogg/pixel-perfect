@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
+import { calculateCommercialPrice } from "@/lib/commercial-calculation";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
 export const DEFAULT_COMMERCIAL_TRIGGERS = [
@@ -113,6 +114,7 @@ export const getWorkspace = createServerFn({ method: "GET" })
       allProfilesRes,
       allRolesRes,
       teamsRes,
+      enrollmentRes,
     ] = await Promise.all([
       db.from("profiles").select("*").eq("id", context.userId).maybeSingle(),
       db.from("user_roles").select("role").eq("user_id", context.userId),
@@ -127,8 +129,10 @@ export const getWorkspace = createServerFn({ method: "GET" })
       db.from("profiles").select("*"),
       db.from("user_roles").select("*"),
       db.from("teams").select("*").eq("status", "active"),
+      db.from("enrollment_settings").select("default_fee").eq("id", "global").single(),
     ]);
 
+    if (enrollmentRes.error) throw new Error("Não foi possível carregar o valor de matrícula.");
     const userRoles = (rolesRes.data ?? []).map((r) => r.role);
     const isAdmin = userRoles.includes("admin");
     const isManager = userRoles.includes("manager");
@@ -204,6 +208,7 @@ export const getWorkspace = createServerFn({ method: "GET" })
       isSeller,
       areas: areasRes.data ?? [],
       courses: coursesRes.data ?? [],
+      enrollmentFee: Number(enrollmentRes.data.default_fee),
       methods: methodsRes.data ?? [],
       installments: installmentsRes.data ?? [],
       prices: pricesRes.data ?? [],
@@ -257,6 +262,7 @@ const proposalInput = z.object({
   paymentMethodId: z.string().uuid(),
   installmentId: z.string().uuid().optional().or(z.literal("")),
   discountId: z.string().uuid().optional().or(z.literal("")),
+  conditionId: z.string().uuid().optional(),
   matriculaDiscount: z.number().nonnegative().optional().default(0),
   entradaDiscount: z.number().nonnegative().optional().default(0),
   modularDiscounts: z.array(modularDiscountItem).optional().default([]),
@@ -304,7 +310,13 @@ export const createProposal = createServerFn({ method: "POST" })
       label: "À vista",
     };
     const discountRule = discountRes?.data || null;
-    const condition = conditionRes?.data || null;
+    let condition = conditionRes?.data || null;
+    if (data.conditionId) {
+      const result = await db.from("commercial_conditions").select("*").eq("id", data.conditionId).eq("course_id", data.courseId).eq("status", "active").single();
+      if (result.error || !result.data || result.data.payment_method_id !== data.paymentMethodId || (result.data.installment_option_id ?? "") !== (data.installmentId ?? "") || (result.data.discount_rule_id ?? "") !== (data.discountId ?? "")) throw new Error("A condição selecionada não está mais disponível. Atualize a simulação.");
+      condition = result.data;
+    }
+    if (data.discountId && !discountRule) throw new Error("O desconto selecionado não está disponível.");
 
     const roles = (roleRowsRes?.data ?? []).map((r) => r.role);
     if (discountRule && !discountRule.allowed_roles.some((role: any) => roles.includes(role))) {
@@ -324,57 +336,25 @@ export const createProposal = createServerFn({ method: "POST" })
     }
     const { data: configuredPrice } = await priceQuery.maybeSingle();
 
-    const originalPrice = Number(configuredPrice?.price ?? course.base_price);
-
-    // Calculate modular discounts
-    const discountItems: Array<{ name: string; kind: "percentage" | "fixed"; value: number; amount: number }> = [];
-
-    if (discountRule) {
-      const amt = discountRule.kind === "percentage" ? (originalPrice * Number(discountRule.value)) / 100 : Number(discountRule.value);
-      discountItems.push({
-        name: discountRule.name,
-        kind: discountRule.kind,
-        value: Number(discountRule.value),
-        amount: Math.min(amt, Number(discountRule.max_discount ?? amt)),
-      });
-    }
-
-    if (data.matriculaDiscount > 0) {
-      discountItems.push({
-        name: "Desconto Matrícula",
-        kind: "fixed",
-        value: data.matriculaDiscount,
-        amount: data.matriculaDiscount,
-      });
-    }
-
-    if (data.entradaDiscount > 0) {
-      discountItems.push({
-        name: "Desconto Entrada",
-        kind: "fixed",
-        value: data.entradaDiscount,
-        amount: data.entradaDiscount,
-      });
-    }
-
-    for (const mod of data.modularDiscounts) {
-      if (mod.amount > 0) discountItems.push(mod);
-    }
-
-    const totalDiscountAmount = Math.min(
-      originalPrice,
-      discountItems.reduce((acc, curr) => acc + curr.amount, 0)
-    );
-
-    let finalPrice = Math.max(0, originalPrice - totalDiscountAmount);
-    if (discountRule?.min_final_price != null) {
-      finalPrice = Math.max(finalPrice, Number(discountRule.min_final_price));
-    }
-
-    finalPrice = Math.round(finalPrice * 100) / 100;
-    const finalDiscountAmount = Math.round((originalPrice - finalPrice) * 100) / 100;
-    const countInstallments = Math.max(1, Number(installment.installments) || 1);
-    const installmentValue = Math.round((finalPrice / countInstallments) * 100) / 100;
+    const enrollment = await db.from("enrollment_settings").select("default_fee").eq("id", "global").single();
+    if (enrollment.error) throw new Error("Não foi possível consultar a matrícula vigente.");
+    if (data.matriculaDiscount || data.entradaDiscount) throw new Error("Matrícula é um acréscimo; utilize os descontos configurados.");
+    const additional = data.modularDiscounts.reduce((sum, item) => sum + item.amount, 0);
+    if (additional > 0 && !roles.includes("admin") && !roles.includes("manager")) throw new Error("O desconto adicional exige autorização da gestão.");
+    const calc = calculateCommercialPrice({
+      coursePrice: Number(configuredPrice?.price ?? course.base_price),
+      enrollmentFee: Number(course.enrollment_fee ?? enrollment.data.default_fee),
+      materialDiscount: Number(course.material_discount),
+      special: discountRule ? { ...discountRule, value: Number(discountRule.value) } : null,
+      additional,
+      installments: Number(installment.installments),
+    });
+    const originalPrice = calc.original;
+    const discountItems = calc.breakdown;
+    const finalPrice = calc.final;
+    const finalDiscountAmount = calc.economy;
+    const countInstallments = calc.count;
+    const installmentValue = calc.portion;
 
     // Student handling (Prevent duplication per Requirement 8)
     const cleanWhatsapp = data.whatsapp.replace(/\D/g, "");
@@ -460,6 +440,10 @@ export const createProposal = createServerFn({ method: "POST" })
     const snapshotNotes = JSON.stringify({
       userNotes: data.notes || "",
       discountBreakdown: discountItems,
+      coursePrice: calc.coursePrice,
+      enrollmentFee: calc.enrollmentFee,
+      materialDiscount: calc.material,
+      subtotal: calc.subtotal,
       validityMinutes,
       calculatedAt: new Date().toISOString(),
     });
@@ -477,6 +461,10 @@ export const createProposal = createServerFn({ method: "POST" })
         course_workload_hours: course.workload_hours,
         course_modality: course.modality,
         original_price: originalPrice,
+        course_price_snapshot: calc.coursePrice,
+        enrollment_fee_snapshot: calc.enrollmentFee,
+        material_discount_snapshot: calc.material,
+        subtotal_snapshot: calc.subtotal,
         discount_name: discountSummaryName,
         discount_kind: discountRule?.kind ?? "fixed",
         discount_value: finalDiscountAmount,
@@ -1166,6 +1154,8 @@ export const saveCatalogItem = createServerFn({ method: "POST" })
       workload: z.number().int().positive().optional(),
       modality: z.string().max(60).optional(),
       basePrice: z.number().nonnegative().optional(),
+      enrollmentFee: z.number().finite().nonnegative().nullable().optional(),
+      materialDiscount: z.number().finite().nonnegative().optional(),
       discountKind: z.enum(["percentage", "fixed"]).optional(),
       discountValue: z.number().nonnegative().optional(),
       triggerTitle: z.string().max(120).optional(),
@@ -1293,6 +1283,8 @@ export const saveCatalogItem = createServerFn({ method: "POST" })
         workload_hours: data.workload,
         modality: data.modality,
         base_price: data.basePrice,
+        enrollment_fee: data.enrollmentFee ?? null,
+        material_discount: data.materialDiscount ?? 0,
       })
       .select()
       .single();

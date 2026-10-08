@@ -297,8 +297,10 @@ export type Database = {
           base_price: number
           created_at: string
           description: string | null
+          enrollment_fee: number | null
           id: string
           is_demo: boolean
+          material_discount: number
           modality: string
           name: string
           sort_order: number
@@ -311,8 +313,10 @@ export type Database = {
           base_price: number
           created_at?: string
           description?: string | null
+          enrollment_fee?: number | null
           id?: string
           is_demo?: boolean
+          material_discount?: number
           modality: string
           name: string
           sort_order?: number
@@ -325,8 +329,10 @@ export type Database = {
           base_price?: number
           created_at?: string
           description?: string | null
+          enrollment_fee?: number | null
           id?: string
           is_demo?: boolean
+          material_discount?: number
           modality?: string
           name?: string
           sort_order?: number
@@ -440,6 +446,24 @@ export type Database = {
           valid_from?: string | null
           valid_until?: string | null
           value?: number
+        }
+        Relationships: []
+      }
+      enrollment_settings: {
+        Row: {
+          default_fee: number
+          id: string
+          updated_at: string
+        }
+        Insert: {
+          default_fee?: number
+          id?: string
+          updated_at?: string
+        }
+        Update: {
+          default_fee?: number
+          id?: string
+          updated_at?: string
         }
         Relationships: []
       }
@@ -736,23 +760,27 @@ export type Database = {
           course_id: string | null
           course_modality: string | null
           course_name: string
+          course_price_snapshot: number | null
           course_workload_hours: number | null
           created_at: string
           discount_amount: number
           discount_kind: Database["public"]["Enums"]["discount_kind"] | null
           discount_name: string | null
           discount_value: number
+          enrollment_fee_snapshot: number | null
           final_price: number
           id: string
           installment_value: number
           installments: number
           is_demo: boolean
+          material_discount_snapshot: number | null
           notes: string | null
           original_price: number
           payment_method_name: string
           seller_id: string
           status: Database["public"]["Enums"]["proposal_status"]
           student_id: string
+          subtotal_snapshot: number | null
           timer_remaining_seconds: number | null
           timer_status: Database["public"]["Enums"]["timer_status"] | null
           updated_at: string
@@ -763,23 +791,27 @@ export type Database = {
           course_id?: string | null
           course_modality?: string | null
           course_name: string
+          course_price_snapshot?: number | null
           course_workload_hours?: number | null
           created_at?: string
           discount_amount?: number
           discount_kind?: Database["public"]["Enums"]["discount_kind"] | null
           discount_name?: string | null
           discount_value?: number
+          enrollment_fee_snapshot?: number | null
           final_price: number
           id?: string
           installment_value: number
           installments?: number
           is_demo?: boolean
+          material_discount_snapshot?: number | null
           notes?: string | null
           original_price: number
           payment_method_name: string
           seller_id: string
           status?: Database["public"]["Enums"]["proposal_status"]
           student_id: string
+          subtotal_snapshot?: number | null
           timer_remaining_seconds?: number | null
           timer_status?: Database["public"]["Enums"]["timer_status"] | null
           updated_at?: string
@@ -790,23 +822,27 @@ export type Database = {
           course_id?: string | null
           course_modality?: string | null
           course_name?: string
+          course_price_snapshot?: number | null
           course_workload_hours?: number | null
           created_at?: string
           discount_amount?: number
           discount_kind?: Database["public"]["Enums"]["discount_kind"] | null
           discount_name?: string | null
           discount_value?: number
+          enrollment_fee_snapshot?: number | null
           final_price?: number
           id?: string
           installment_value?: number
           installments?: number
           is_demo?: boolean
+          material_discount_snapshot?: number | null
           notes?: string | null
           original_price?: number
           payment_method_name?: string
           seller_id?: string
           status?: Database["public"]["Enums"]["proposal_status"]
           student_id?: string
+          subtotal_snapshot?: number | null
           timer_remaining_seconds?: number | null
           timer_status?: Database["public"]["Enums"]["timer_status"] | null
           updated_at?: string
@@ -1069,6 +1105,10 @@ export type Database = {
         Returns: boolean
       }
       my_team_id: { Args: never; Returns: string }
+      set_course_enrollment_bulk: {
+        Args: { course_ids: string[]; fee: number }
+        Returns: number
+      }
     }
     Enums: {
       app_role: "admin" | "manager" | "seller"
