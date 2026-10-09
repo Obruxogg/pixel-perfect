@@ -17,6 +17,7 @@ import {
   Sparkles,
   ArrowLeft,
 } from "lucide-react";
+import { ProposalPriceBreakdown } from "@/components/proposal-price-breakdown";
 import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
 import { brl, dateTime, dateOnly, timeOnly, useRefreshWorkspace, useWorkspace } from "@/lib/use-workspace";
@@ -188,24 +189,17 @@ function ProposalsPage() {
             Apresentada para: <b>{student?.full_name ?? "Aluno"}</b>
           </p>
 
-          <div className="mt-8 rounded-2xl border-2 border-primary/40 bg-card p-8 md:p-10 shadow-xl max-w-2xl mx-auto w-full">
-            <div className="flex justify-between items-baseline text-sm text-muted-foreground">
-              <span>Valor Original:</span>
-              <span className="price-strike">{brl.format(original)}</span>
-            </div>
-
-            <div className="economy-callout my-4 w-full justify-between">
-              <span className="text-xs uppercase font-bold tracking-wide">Economia Concedida:</span>
-              <span className="text-base font-extrabold">{brl.format(economy)}</span>
-            </div>
-
-            <div className="bg-primary/5 rounded-xl border border-primary/20 p-6 my-4">
-              <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Valor Final</span>
-              <div className="price-highlight my-2">{brl.format(finalPrice)}</div>
-              <p className="text-base font-semibold">
-                em <b>{installments}x de {brl.format(installmentVal)}</b> no {presentationProposal.payment_method_name}
-              </p>
-            </div>
+          <div className="mt-8 rounded-lg border border-border bg-card p-6 md:p-8 max-w-2xl mx-auto w-full">
+            <ProposalPriceBreakdown
+              coursePrice={presentationProposal.course_price_snapshot}
+              enrollmentFee={presentationProposal.enrollment_fee_snapshot}
+              materialDiscount={presentationProposal.material_discount_snapshot}
+              subtotal={presentationProposal.subtotal_snapshot}
+              original={original}
+              final={finalPrice}
+              discounts={savedDiscounts(presentationProposal)}
+            />
+            <p className="mt-4 text-sm font-semibold">em <b>{installments}x de {brl.format(installmentVal)}</b> no {presentationProposal.payment_method_name}</p>
 
             {presentationProposal.valid_until && (
               <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground mt-4">
@@ -373,13 +367,8 @@ function ProposalsPage() {
                   )}
                 </div>
 
-                {/* Price visual contrast */}
-                <div className="mt-3 flex items-baseline gap-3">
-                  <span className="text-xs text-muted-foreground line-through">{brl.format(original)}</span>
-                  {discountAmt > 0 && (
-                    <span className="text-xs font-semibold text-emerald-600">− {brl.format(discountAmt)}</span>
-                  )}
-                  <strong className="text-lg font-extrabold text-foreground">{brl.format(finalPrice)}</strong>
+                <div className="mt-4 max-w-xl">
+                  <ProposalPriceBreakdown coursePrice={p.course_price_snapshot} enrollmentFee={p.enrollment_fee_snapshot} materialDiscount={p.material_discount_snapshot} subtotal={p.subtotal_snapshot} original={original} final={finalPrice} discounts={savedDiscounts(p)} />
                 </div>
               </div>
 
@@ -534,4 +523,16 @@ function ProposalsPage() {
       )}
     </AppShell>
   );
+}
+
+function savedDiscounts(proposal: { notes: string | null; subtotal_snapshot: number | null; final_price: number; discount_amount: number; discount_name: string | null }) {
+  if (proposal.subtotal_snapshot == null) return [{ name: proposal.discount_name || "Desconto aplicado", amount: Number(proposal.discount_amount) }];
+  try {
+    const parsed: unknown = JSON.parse(proposal.notes ?? "");
+    if (parsed && typeof parsed === "object" && "discountBreakdown" in parsed && Array.isArray(parsed.discountBreakdown)) {
+      const items = parsed.discountBreakdown.filter((item): item is { name: string; amount: number } => !!item && typeof item === "object" && typeof item.name === "string" && typeof item.amount === "number" && Number.isFinite(item.amount));
+      if (items.length) return items.filter(item => item.name !== "Desconto de Material Didático");
+    }
+  } catch { /* Historical notes can be plain text. */ }
+  return [{ name: "Condição especial", amount: Math.max(0, Number(proposal.subtotal_snapshot) - Number(proposal.final_price)) }];
 }
