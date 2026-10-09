@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { useServerFn } from "@tanstack/react-start";
 import { calculateCommercialPrice } from "@/lib/commercial-calculation";
+import { ProposalPriceBreakdown } from "@/components/proposal-price-breakdown";
 import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
 import { brl, dateTime, useRefreshWorkspace, useWorkspace } from "@/lib/use-workspace";
@@ -258,58 +259,10 @@ function SimulationPage() {
             </div>
           </div>
 
-          {/* Price Card */}
-          <div className="rounded-2xl border-2 border-primary/40 bg-card p-6 md:p-10 shadow-xl">
-            <div className="grid md:grid-cols-2 gap-8 items-center">
-              <div>
-                <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground block">
-                  Valor Original da Formação
-                </span>
-                <div className="mt-2 text-sm">Curso: {brl.format(calc.coursePrice)} · Matrícula: + {brl.format(calc.enrollmentFee)}</div>
-                <p className="price-strike mt-1">{brl.format(calc.original)}</p>
-
-                {calc.breakdown.length > 0 && (
-                  <div className="mt-4 space-y-2 border-t border-border pt-4">
-                    <span className="text-xs font-bold uppercase text-primary tracking-wide block">
-                      Condição Especial Aplicada:
-                    </span>
-                    {calc.breakdown.map((item, idx) => (
-                      <div key={idx} className="flex items-center justify-between text-sm">
-                        <span className="text-muted-foreground">{item.name}</span>
-                        <span className="font-bold text-emerald-600">− {brl.format(item.amount)}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                <div className="mt-4 pt-3 border-t border-border">
-                  <div className="flex justify-between text-sm"><span>Subtotal após material</span><b>{brl.format(calc.subtotal)}</b></div>
-            <div className="economy-callout w-full justify-between">
-                    <span className="text-xs uppercase font-bold tracking-wide">Economia Total:</span>
-                    <span className="text-base font-extrabold">{brl.format(calc.economy)}</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Final Price */}
-              <div className="bg-primary/5 rounded-xl border border-primary/20 p-6 text-center md:text-right flex flex-col justify-center">
-                <span className="text-xs font-bold uppercase tracking-widest text-primary block">Por Apenas</span>
-                <div className="price-highlight my-2">{brl.format(calc.final)}</div>
-                {calc.count > 1 && (
-                  <p className="text-base font-semibold text-foreground">
-                    em <b>{calc.count}x de {brl.format(calc.portion)}</b> no {selectedMethod?.name}
-                  </p>
-                )}
-                {calc.count === 1 && selectedMethod?.name && (
-                  <p className="text-base font-semibold text-foreground">à vista no {selectedMethod.name}</p>
-                )}
-
-                <div className="mt-4 flex items-center justify-center md:justify-end gap-2 text-xs font-medium text-muted-foreground bg-background/80 rounded-md py-1.5 px-3 border border-border">
-                  <Clock3 size={14} className="text-primary" />
-                  <span>Condição válida até {dateTime.format(validUntilDate)}</span>
-                </div>
-              </div>
-            </div>
+          <div className="rounded-lg border border-border bg-card p-6 md:p-8">
+            <ProposalPriceBreakdown coursePrice={calc.coursePrice} enrollmentFee={calc.enrollmentFee} materialDiscount={calc.material} subtotal={calc.subtotal} original={calc.original} final={calc.final} discounts={calc.breakdown.filter(item => item.name !== "Desconto de Material Didático")} />
+            <p className="mt-4 text-center text-sm font-semibold">{calc.count > 1 ? `${calc.count}x de ${brl.format(calc.portion)}` : "À vista"} {selectedMethod?.name && `no ${selectedMethod.name}`}</p>
+            <p className="mt-2 text-center text-xs text-muted-foreground">Condição válida até {dateTime.format(validUntilDate)}</p>
 
             {/* Triggers */}
             {((data?.triggers ?? []) as Array<{ id: string; is_active: boolean; template_text: string }>).filter(t => t.is_active).length > 0 && (
@@ -708,38 +661,8 @@ function SimulationPage() {
           </div>
 
           <div className="mt-5 space-y-4">
-            <div className="flex justify-between text-sm"><span>Valor do curso</span><b>{brl.format(calc.coursePrice)}</b></div>
-            <div className="flex justify-between text-sm"><span>Matrícula</span><b>+ {brl.format(calc.enrollmentFee)}</b></div>
-            <div className="flex items-baseline justify-between">
-              <span className="text-sm text-muted-foreground">Total com matrícula:</span>
-              <span className="text-base font-semibold line-through text-muted-foreground">{brl.format(calc.original)}</span>
-            </div>
-
-            {calc.breakdown.length > 0 && (
-              <div className="rounded-lg bg-muted/40 p-3 space-y-2 border border-border/80">
-                <span className="text-xs font-bold uppercase text-primary tracking-wide block">Descontos Aplicados:</span>
-                {calc.breakdown.map((item, idx) => (
-                  <div key={idx} className="flex justify-between text-xs">
-                    <span>{item.name}</span>
-                    <b className="text-emerald-600">− {brl.format(item.amount)}</b>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            <div className="economy-callout w-full justify-between">
-              <span className="text-xs uppercase font-bold tracking-wide">Você Economiza:</span>
-              <strong className="text-base font-extrabold">{brl.format(calc.economy)}</strong>
-            </div>
-
-            <div className="rounded-xl border border-primary/20 bg-primary/5 p-4 text-center">
-              <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Valor Final da Proposta</span>
-              <div className="price-highlight my-1">{brl.format(calc.final)}</div>
-              {calc.count > 1 && (
-                <p className="text-xs font-bold text-foreground">{calc.count}x de <b>{brl.format(calc.portion)}</b></p>
-              )}
-              {calc.count === 1 && <p className="text-xs font-bold text-foreground">À vista</p>}
-            </div>
+            <ProposalPriceBreakdown coursePrice={calc.coursePrice} enrollmentFee={calc.enrollmentFee} materialDiscount={calc.material} subtotal={calc.subtotal} original={calc.original} final={calc.final} discounts={calc.breakdown.filter(item => item.name !== "Desconto de Material Didático")} />
+            <p className="text-center text-xs font-semibold">{calc.count > 1 ? `${calc.count}x de ${brl.format(calc.portion)}` : "À vista"}</p>
 
             {conditionId && (
               <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground bg-background/80 rounded-md py-1.5 px-3 border border-border">

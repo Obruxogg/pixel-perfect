@@ -14,3 +14,4 @@
 - Enrollment uses one global settings row and nullable per-course overrides; null follows the live default without rewriting courses.
 - Use the shared commercial calculation for simulation and proposal creation; server reads authoritative fees and snapshots every price component so historical proposals remain unchanged.
 - Enrollment and material changes are audited by database triggers; bulk enrollment updates use one transaction to prevent partial application.
+- Render price breakdowns through the shared presentation component using saved snapshots for existing proposals; never infer historical fees from the current catalog.
