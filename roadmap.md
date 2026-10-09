@@ -1,5 +1,7 @@
 # Roadmap
 
+- [ ] Exibir composição visual do preço, material e condição especial nas propostas e na simulação
+
 - [x] Ativar Lovable Cloud e métodos de acesso
 - [x] Criar banco relacional, permissões e dados demonstrativos
 - [x] Validar segurança automática do banco
