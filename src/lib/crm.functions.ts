@@ -319,6 +319,7 @@ export const createProposal = createServerFn({ method: "POST" })
     if (data.discountId && !discountRule) throw new Error("O desconto selecionado não está disponível.");
 
     const roles = (roleRowsRes?.data ?? []).map((r) => r.role);
+    if (condition && !condition.allowed_roles.some(role => roles.includes(role))) throw new Error("Esta condição não está autorizada para seu perfil.");
     if (discountRule && !discountRule.allowed_roles.some((role: any) => roles.includes(role))) {
       throw new Error("Este desconto não está autorizado para seu perfil.");
     }
