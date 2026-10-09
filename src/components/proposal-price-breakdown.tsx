@@ -12,7 +12,7 @@ type PriceBreakdownProps = {
 
 export function ProposalPriceBreakdown({ coursePrice, enrollmentFee, materialDiscount, subtotal, original, final, discounts }: PriceBreakdownProps) {
   const detailed = coursePrice != null && enrollmentFee != null && materialDiscount != null && subtotal != null;
-  const reductions = discounts ?? [{ name: "Condição especial", amount: Math.max(0, (subtotal ?? original) - final) }];
+  const reductions = discounts?.length ? discounts : [{ name: "Condição especial", amount: Math.max(0, (subtotal ?? original) - final) }];
   return (
     <div className="text-left text-sm" aria-label="Composição do valor da proposta">
       <div className="border-b border-border pb-5">
