@@ -1,5 +1,9 @@
 # Roadmap
 
+- [ ] Separar forma de pagamento, parcelas autorizadas e condição comercial na proposta
+- [ ] Validar combinações no servidor e exibir parcelas com ajuste de centavos
+- [ ] Testar seleção, restrições e preservação das propostas existentes
+
 - [x] Exibir composição visual do preço, material e condição especial nas propostas e na simulação
 
 - [x] Ativar Lovable Cloud e métodos de acesso
