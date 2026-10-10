@@ -15,3 +15,5 @@
 - Use the shared commercial calculation for simulation and proposal creation; server reads authoritative fees and snapshots every price component so historical proposals remain unchanged.
 - Enrollment and material changes are audited by database triggers; bulk enrollment updates use one transaction to prevent partial application.
 - Render price breakdowns through the shared presentation component using saved snapshots for existing proposals; never infer historical fees from the current catalog.
+- Commercial conditions authorize course/payment/installment combinations; use shared eligibility validation in the editor and server, with the condition's referenced price as authoritative, to prevent unsupported selections.
+- Format installments from saved total, count and installment value, adjusting the last payment without consulting current catalog rules, to preserve historical cents.
