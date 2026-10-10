@@ -30,6 +30,7 @@ import {
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
 import { AppShell } from "@/components/app-shell";
+import { formatInstallmentSummary } from "@/lib/commercial-options";
 import { useWorkspace, brl, dateTime, dateOnly, timeOnly, formatPhone, useRefreshWorkspace } from "@/lib/use-workspace";
 import { Button } from "@/components/ui/button";
 import { completeFollowup, createQuickStudent, manageSeller } from "@/lib/crm.functions";
@@ -163,7 +164,7 @@ Olá, *${studentName}*! Tudo bem?
 
 Conforme conversamos, preparei a sua condição comercial exclusiva para o curso:
 📚 *Curso:* ${proposal.course_name} (${proposal.course_modality || "Presencial"})
-💰 *Condição:* ${proposal.installments}x de ${brl.format(Number(proposal.installment_value))} (${proposal.payment_method_name})
+💰 *Condição:* ${formatInstallmentSummary(Number(proposal.final_price), Number(proposal.installments), Number(proposal.installment_value))} (${proposal.payment_method_name})
 💵 *Valor Final com Desconto:* *${brl.format(Number(proposal.final_price))}*${economyText}
 
 ⚡ *Validade:* Esta condição foi registrada no sistema e está reservada para você.

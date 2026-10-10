@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { AppShell } from "@/components/app-shell";
+import { formatInstallmentSummary } from "@/lib/commercial-options";
 import { Button } from "@/components/ui/button";
 import {
   brl,
@@ -345,7 +346,7 @@ function StudentProfilePage() {
                         </span>
                       </div>
                       <div className="flex items-center justify-between text-muted-foreground">
-                        <span>{p.installments}x de {brl.format(Number(p.installment_value))}</span>
+                        <span>{formatInstallmentSummary(Number(p.final_price), Number(p.installments), Number(p.installment_value))}</span>
                         <strong className="text-primary">{brl.format(Number(p.final_price))}</strong>
                       </div>
                       <span className="text-muted-foreground">{dateTime.format(new Date(p.created_at))}</span>
