@@ -1,8 +1,8 @@
 # Roadmap
 
-- [ ] Separar forma de pagamento, parcelas autorizadas e condição comercial na proposta
-- [ ] Validar combinações no servidor e exibir parcelas com ajuste de centavos
-- [ ] Testar seleção, restrições e preservação das propostas existentes
+- [x] Separar forma de pagamento, parcelas autorizadas e condição comercial na proposta, reutilizando cadastros da gestão
+- [x] Validar combinações no servidor e exibir parcelas com ajuste de centavos
+- [x] Testar seleção, restrições e preservação das propostas existentes: 13 testes; PIX/crédito, apresentação e limpeza de seleção verificados; sem criar vendas ou propostas de teste
 
 - [x] Exibir composição visual do preço, material e condição especial nas propostas e na simulação
 
