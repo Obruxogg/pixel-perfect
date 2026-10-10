@@ -599,7 +599,7 @@ function SettingsPage() {
                     required
                   >
                     <option value="">Selecione</option>
-                    {(data.methods ?? []).map((m) => (
+                    {(data.methods ?? []).filter(method => method.status === "active").map((m) => (
                       <option key={m.id} value={m.id}>{m.name}</option>
                     ))}
                   </select>
@@ -615,7 +615,7 @@ function SettingsPage() {
                   >
                     <option value="">Selecione as parcelas</option>
                     {(data.installments ?? [])
-                      .filter((i) => i.payment_method_id === condPaymentMethodId)
+                      .filter((i) => i.payment_method_id === condPaymentMethodId && i.status === "active")
                       .map((i) => (
                         <option key={i.id} value={i.id}>{i.label} ({i.installments}x)</option>
                       ))}
@@ -1638,7 +1638,7 @@ function SettingsPage() {
                   onChange={(e) => setNewInstPaymentMethodId(e.target.value)}
                 >
                   <option value="">Selecione...</option>
-                  {data.methods.map((m) => (
+                  {data.methods.filter(method => method.status === "active").map((m) => (
                     <option key={m.id} value={m.id}>
                       {m.name}
                     </option>
