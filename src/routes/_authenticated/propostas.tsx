@@ -18,6 +18,7 @@ import {
   ArrowLeft,
 } from "lucide-react";
 import { ProposalPriceBreakdown } from "@/components/proposal-price-breakdown";
+import { formatInstallmentSummary } from "@/lib/commercial-options";
 import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
 import { brl, dateTime, dateOnly, timeOnly, useRefreshWorkspace, useWorkspace } from "@/lib/use-workspace";
@@ -199,7 +200,7 @@ function ProposalsPage() {
               final={finalPrice}
               discounts={savedDiscounts(presentationProposal)}
             />
-            <p className="mt-4 text-sm font-semibold">em <b>{installments}x de {brl.format(installmentVal)}</b> no {presentationProposal.payment_method_name}</p>
+            <p className="mt-4 text-sm font-semibold">{formatInstallmentSummary(finalPrice, installments, installmentVal)} · {presentationProposal.payment_method_name}</p>
 
             {presentationProposal.valid_until && (
               <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground mt-4">
@@ -357,7 +358,7 @@ function ProposalsPage() {
                   <span>{p.payment_method_name}</span>
                   <span>•</span>
                   <span>
-                    {p.installments}x de <b>{brl.format(Number(p.installment_value))}</b>
+                    {formatInstallmentSummary(Number(p.final_price), Number(p.installments), Number(p.installment_value))}
                   </span>
                   {p.discount_name && (
                     <>

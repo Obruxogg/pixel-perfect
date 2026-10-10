@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { calculateCommercialPrice } from "@/lib/commercial-calculation";
+import { eligibleCommercialConditions } from "@/lib/commercial-options";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
 export const DEFAULT_COMMERCIAL_TRIGGERS = [
@@ -262,7 +263,7 @@ const proposalInput = z.object({
   paymentMethodId: z.string().uuid(),
   installmentId: z.string().uuid().optional().or(z.literal("")),
   discountId: z.string().uuid().optional().or(z.literal("")),
-  conditionId: z.string().uuid().optional(),
+  conditionId: z.string().uuid(),
   matriculaDiscount: z.number().nonnegative().optional().default(0),
   entradaDiscount: z.number().nonnegative().optional().default(0),
   modularDiscounts: z.array(modularDiscountItem).optional().default([]),
@@ -279,9 +280,9 @@ export const createProposal = createServerFn({ method: "POST" })
 
     let installmentPromise;
     if (data.installmentId) {
-      installmentPromise = db.from("installment_options").select("*").eq("id", data.installmentId).maybeSingle();
+      installmentPromise = db.from("installment_options").select("*").eq("id", data.installmentId).eq("payment_method_id", data.paymentMethodId).eq("status", "active").maybeSingle();
     } else {
-      installmentPromise = db.from("installment_options").select("*").eq("payment_method_id", data.paymentMethodId).order("installments", { ascending: true }).limit(1).maybeSingle();
+      installmentPromise = Promise.resolve({ data: null, error: null });
     }
 
     const [
@@ -297,12 +298,13 @@ export const createProposal = createServerFn({ method: "POST" })
       installmentPromise,
       data.discountId ? db.from("discount_rules").select("*").eq("id", data.discountId).eq("status", "active").maybeSingle() : Promise.resolve({ data: null }),
       db.from("user_roles").select("role").eq("user_id", context.userId),
-      db.from("commercial_conditions").select("*").eq("course_id", data.courseId).eq("payment_method_id", data.paymentMethodId).maybeSingle(),
+      db.from("commercial_conditions").select("*").eq("id", data.conditionId).eq("course_id", data.courseId).eq("status", "active").maybeSingle(),
     ]);
 
     const course = courseRes?.data;
     const method = methodRes?.data;
     if (!course || !method) throw new Error("O curso ou a forma de pagamento selecionada não está mais disponível.");
+    if (data.installmentId && (installmentRes.error || !installmentRes.data)) throw new Error("O parcelamento selecionado não está autorizado para esta forma de pagamento.");
 
     const installment = installmentRes?.data || {
       id: null,
@@ -310,12 +312,8 @@ export const createProposal = createServerFn({ method: "POST" })
       label: "À vista",
     };
     const discountRule = discountRes?.data || null;
-    let condition = conditionRes?.data || null;
-    if (data.conditionId) {
-      const result = await db.from("commercial_conditions").select("*").eq("id", data.conditionId).eq("course_id", data.courseId).eq("status", "active").single();
-      if (result.error || !result.data || result.data.payment_method_id !== data.paymentMethodId || (result.data.installment_option_id ?? "") !== (data.installmentId ?? "") || (result.data.discount_rule_id ?? "") !== (data.discountId ?? "")) throw new Error("A condição selecionada não está mais disponível. Atualize a simulação.");
-      condition = result.data;
-    }
+    const condition = conditionRes.data;
+    if (conditionRes.error || !condition || condition.payment_method_id !== data.paymentMethodId || (condition.installment_option_id ?? "") !== (data.installmentId ?? "") || (condition.discount_rule_id ?? "") !== (data.discountId ?? "")) throw new Error("A condição selecionada não está mais disponível. Atualize a simulação.");
     if (data.discountId && !discountRule) throw new Error("O desconto selecionado não está disponível.");
 
     const roles = (roleRowsRes?.data ?? []).map((r) => r.role);
@@ -324,18 +322,18 @@ export const createProposal = createServerFn({ method: "POST" })
       throw new Error("Este desconto não está autorizado para seu perfil.");
     }
 
-    // Determine base price
-    let priceQuery = db
-      .from("course_prices")
-      .select("price")
-      .eq("course_id", data.courseId)
-      .eq("payment_method_id", data.paymentMethodId)
-      .eq("status", "active");
-
-    if (installment.id) {
-      priceQuery = priceQuery.eq("installment_option_id", installment.id);
-    }
-    const { data: configuredPrice } = await priceQuery.maybeSingle();
+    const { data: configuredPrice, error: priceError } = await db.from("course_prices").select("*").eq("id", condition.course_price_id).maybeSingle();
+    if (priceError || !configuredPrice) throw new Error("O preço desta condição não está disponível.");
+    const authorized = eligibleCommercialConditions({
+      courseId: course.id,
+      roles,
+      conditions: [condition],
+      methods: [method],
+      installments: installmentRes.data ? [installmentRes.data] : [],
+      prices: [configuredPrice],
+      discounts: discountRule ? [discountRule] : [],
+    });
+    if (!authorized.length) throw new Error("A combinação de pagamento, parcelas e condição não está autorizada ou venceu. Atualize a simulação.");
 
     const enrollment = await db.from("enrollment_settings").select("default_fee").eq("id", "global").single();
     if (enrollment.error) throw new Error("Não foi possível consultar a matrícula vigente.");
@@ -343,7 +341,7 @@ export const createProposal = createServerFn({ method: "POST" })
     const additional = data.modularDiscounts.reduce((sum, item) => sum + item.amount, 0);
     if (additional > 0 && !roles.includes("admin") && !roles.includes("manager")) throw new Error("O desconto adicional exige autorização da gestão.");
     const calc = calculateCommercialPrice({
-      coursePrice: Number(configuredPrice?.price ?? course.base_price),
+      coursePrice: Number(configuredPrice.price),
       enrollmentFee: Number(course.enrollment_fee ?? enrollment.data.default_fee),
       materialDiscount: Number(course.material_discount),
       special: discountRule ? { ...discountRule, value: Number(discountRule.value) } : null,
@@ -445,6 +443,11 @@ export const createProposal = createServerFn({ method: "POST" })
       enrollmentFee: calc.enrollmentFee,
       materialDiscount: calc.material,
       subtotal: calc.subtotal,
+      conditionId: condition.id,
+      conditionName: condition.name,
+      paymentMethodId: method.id,
+      installmentOptionId: installment.id,
+      lastInstallmentValue: Math.round((calc.final - calc.portion * (calc.count - 1)) * 100) / 100,
       validityMinutes,
       calculatedAt: new Date().toISOString(),
     });
@@ -1174,6 +1177,11 @@ export const saveCatalogItem = createServerFn({ method: "POST" })
       if (!data.courseId || !data.paymentMethodId || !data.installmentId) {
         throw new Error("Curso, forma de pagamento e parcelamento são obrigatórios para a condição comercial.");
       }
+      const [methodCheck, installmentCheck] = await Promise.all([
+        context.supabase.from("payment_methods").select("id").eq("id", data.paymentMethodId).eq("status", "active").maybeSingle(),
+        context.supabase.from("installment_options").select("id").eq("id", data.installmentId).eq("payment_method_id", data.paymentMethodId).eq("status", "active").maybeSingle(),
+      ]);
+      if (methodCheck.error || !methodCheck.data || installmentCheck.error || !installmentCheck.data) throw new Error("Selecione uma forma de pagamento e um parcelamento ativos e compatíveis.");
 
       const { data: existingPrice } = await context.supabase
         .from("course_prices")
@@ -1353,6 +1361,8 @@ export const savePaymentMethod = createServerFn({ method: "POST" })
   )
   .handler(async ({ data, context }) => {
     const db = context.supabase;
+    const { data: roles, error: roleError } = await db.from("user_roles").select("role").eq("user_id", context.userId);
+    if (roleError || !roles?.some(row => row.role === "admin" || row.role === "manager")) throw new Error("Somente a gestão pode alterar formas de pagamento.");
     const payload = {
       name: data.name.trim(),
       sort_order: data.sortOrder,
@@ -1381,6 +1391,10 @@ export const saveInstallmentOption = createServerFn({ method: "POST" })
   )
   .handler(async ({ data, context }) => {
     const db = context.supabase;
+    const { data: roles, error: roleError } = await db.from("user_roles").select("role").eq("user_id", context.userId);
+    if (roleError || !roles?.some(row => row.role === "admin" || row.role === "manager")) throw new Error("Somente a gestão pode alterar parcelamentos.");
+    const method = await db.from("payment_methods").select("id").eq("id", data.paymentMethodId).eq("status", "active").maybeSingle();
+    if (method.error || !method.data) throw new Error("Selecione uma forma de pagamento ativa.");
     const payload = {
       payment_method_id: data.paymentMethodId,
       installments: data.installments,
