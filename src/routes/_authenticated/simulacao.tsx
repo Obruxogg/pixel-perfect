@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { useServerFn } from "@tanstack/react-start";
 import { calculateCommercialPrice } from "@/lib/commercial-calculation";
+import { eligibleCommercialConditions, formatInstallmentSummary } from "@/lib/commercial-options";
 import { ProposalPriceBreakdown } from "@/components/proposal-price-breakdown";
 import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
@@ -65,6 +66,8 @@ function SimulationPage() {
 
   // Step 3: Commercial Condition (pre-configured by admin/manager)
   const [conditionId, setConditionId] = useState("");
+  const [paymentMethodId, setPaymentMethodId] = useState("");
+  const [installmentId, setInstallmentId] = useState("");
 
   // Internal seller-only overrides (never shown to student)
   const [showInternalOverrides, setShowInternalOverrides] = useState(false);
@@ -112,23 +115,47 @@ function SimulationPage() {
   const course = data?.courses.find((c) => c.id === courseId);
 
   // Filter conditions to the selected course
-  const courseConditions = (data?.conditions ?? []).filter(
-    (cond: any) => cond.status === "active" && cond.course_id === courseId && cond.allowed_roles.some((role: string) => data?.roles.some((r) => r.role === role))
-  );
+  const courseConditions = eligibleCommercialConditions({
+    courseId,
+    roles: (data?.roles ?? []).map(role => role.role),
+    conditions: data?.conditions ?? [],
+    methods: data?.methods ?? [],
+    installments: data?.installments ?? [],
+    prices: data?.prices ?? [],
+    discounts: data?.discounts ?? [],
+  });
+  const availableMethods = (data?.methods ?? []).filter(method => courseConditions.some(condition => condition.payment_method_id === method.id));
+  const availableInstallments = (data?.installments ?? []).filter(installment => installment.payment_method_id === paymentMethodId && courseConditions.some(condition => condition.payment_method_id === paymentMethodId && condition.installment_option_id === installment.id)).sort((a, b) => a.installments - b.installments);
+  const cashAvailable = courseConditions.some(condition => condition.payment_method_id === paymentMethodId && condition.installment_option_id === null);
+  const matchingConditions = courseConditions.filter(condition => condition.payment_method_id === paymentMethodId && (condition.installment_option_id ?? "cash") === installmentId);
 
-  // Selected condition resolves payment/installment/discount automatically
-  const selectedCondition = (data?.conditions ?? []).find((c: any) => c.id === conditionId) as any;
-  const paymentMethodId: string = selectedCondition?.payment_method_id ?? "";
-  const installmentId: string = selectedCondition?.installment_option_id ?? "";
+  const selectedCondition = matchingConditions.find(condition => condition.id === conditionId);
   const discountRuleId: string = selectedCondition?.discount_rule_id ?? "";
   const validityMinutes: number = selectedCondition?.validity_minutes ?? 60;
 
   const selectedMethod = data?.methods.find((m) => m.id === paymentMethodId);
   const selectedInstallment = data?.installments.find((i) => i.id === installmentId);
-  const configuredPrice = data?.prices.find(
-    (p) => p.course_id === courseId && p.payment_method_id === paymentMethodId && p.installment_option_id === installmentId
-  );
+  const configuredPrice = data?.prices.find(price => price.id === selectedCondition?.course_price_id);
   const discountRule = data?.discounts.find((d) => d.id === discountRuleId);
+
+  const eligibleIds = matchingConditions.map(condition => condition.id).join(",");
+  const methodIds = availableMethods.map(method => method.id).join(",");
+  const installmentIds = [...availableInstallments.map(installment => installment.id), ...(cashAvailable ? ["cash"] : [])].join(",");
+  useEffect(() => {
+    if (paymentMethodId && !methodIds.split(",").includes(paymentMethodId)) {
+      setPaymentMethodId(""); setInstallmentId(""); setConditionId("");
+    } else if (installmentId && !installmentIds.split(",").includes(installmentId)) {
+      setInstallmentId(""); setConditionId("");
+    } else {
+      const ids = eligibleIds ? eligibleIds.split(",") : [];
+      if (ids.length === 1) setConditionId(ids[0] ?? "");
+      else if (conditionId && !ids.includes(conditionId)) setConditionId("");
+    }
+  }, [methodIds, installmentIds, eligibleIds, paymentMethodId, installmentId, conditionId]);
+
+  function resetPayment() {
+    setPaymentMethodId(""); setInstallmentId(""); setConditionId(""); setAdicionalDiscount(0);
+  }
 
   // Real-time calculation engine
   const calc = useMemo(() => calculateCommercialPrice({
@@ -142,7 +169,7 @@ function SimulationPage() {
 
   const validUntilDate = useMemo(() => new Date(Date.now() + validityMinutes * 60000), [validityMinutes]);
 
-  const canPresent = Boolean(studentName && whatsapp && courseId && conditionId);
+  const canPresent = Boolean(studentName.trim().length >= 2 && whatsapp.replace(/\D/g, "").length >= 8 && courseId && selectedCondition);
 
   // ── Handlers ───────────────────────────────────────────────────────────────
   async function saveProposalInternal() {
@@ -154,7 +181,7 @@ function SimulationPage() {
         email: email || undefined,
         courseId,
         paymentMethodId,
-        installmentId,
+        installmentId: installmentId === "cash" ? undefined : installmentId,
         discountId: discountRuleId || undefined,
         conditionId,
         modularDiscounts:
@@ -261,7 +288,7 @@ function SimulationPage() {
 
           <div className="rounded-lg border border-border bg-card p-6 md:p-8">
             <ProposalPriceBreakdown coursePrice={calc.coursePrice} enrollmentFee={calc.enrollmentFee} materialDiscount={calc.material} subtotal={calc.subtotal} original={calc.original} final={calc.final} discounts={calc.breakdown.filter(item => item.name !== "Desconto de Material Didático")} />
-            <p className="mt-4 text-center text-sm font-semibold">{calc.count > 1 ? `${calc.count}x de ${brl.format(calc.portion)}` : "À vista"} {selectedMethod?.name && `no ${selectedMethod.name}`}</p>
+            <p className="mt-4 text-center text-sm font-semibold">{formatInstallmentSummary(calc.final, calc.count, calc.portion)} {selectedMethod?.name && `· ${selectedMethod.name}`}</p>
             <p className="mt-2 text-center text-xs text-muted-foreground">Condição válida até {dateTime.format(validUntilDate)}</p>
 
             {/* Triggers */}
@@ -400,7 +427,7 @@ function SimulationPage() {
   return (
     <AppShell
       title="Nova Proposta"
-      subtitle="Selecione o aluno, o curso e a condição comercial — os valores são preenchidos automaticamente."
+      subtitle="Atendimento comercial"
     >
       {/* Duplicate Contact Alert */}
       {existingContactNotice && (
@@ -498,7 +525,7 @@ function SimulationPage() {
                   onChange={(e) => {
                     setAreaId(e.target.value);
                     setCourseId("");
-                    setConditionId("");
+                    resetPayment();
                   }}
                 >
                   <option value="">Selecione a área</option>
@@ -513,7 +540,7 @@ function SimulationPage() {
                 <select
                   className="input-field mt-1.5"
                   value={courseId}
-                  onChange={(e) => { setCourseId(e.target.value); setConditionId(""); }}
+                  onChange={(e) => { setCourseId(e.target.value); resetPayment(); }}
                   disabled={!areaId}
                 >
                   <option value="">Selecione o curso</option>
@@ -547,10 +574,10 @@ function SimulationPage() {
               <span className="metric-icon"><DollarSign size={18} /></span>
               <div>
                 <h2 className="text-base font-bold">
-                  <span className="text-primary mr-1.5">3.</span> Condição Comercial
+                  <span className="text-primary mr-1.5">3.</span> Pagamento e condição comercial
                 </h2>
                 <p className="text-xs text-muted-foreground">
-                  Selecione a condição — pagamento, parcelamento e desconto são preenchidos automaticamente
+                  Condições autorizadas pela gestão
                 </p>
               </div>
             </div>
@@ -562,18 +589,39 @@ function SimulationPage() {
                   : "Selecione um curso para ver as condições disponíveis."}
               </div>
             ) : (
-              <div className="grid gap-3 sm:grid-cols-2">
-                {courseConditions.map((cond: any) => {
+              <div className="space-y-4">
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <label className="text-sm font-medium">
+                    Forma de pagamento *
+                    <select className="input-field mt-1.5" value={paymentMethodId} onChange={event => { setPaymentMethodId(event.target.value); setInstallmentId(""); setConditionId(""); setAdicionalDiscount(0); }}>
+                      <option value="">Selecione a forma de pagamento</option>
+                      {availableMethods.map(method => <option key={method.id} value={method.id}>{method.name}</option>)}
+                    </select>
+                  </label>
+                  <label className="text-sm font-medium">
+                    Número de parcelas *
+                    <select className="input-field mt-1.5" value={installmentId} disabled={!paymentMethodId} onChange={event => { setInstallmentId(event.target.value); setConditionId(""); setAdicionalDiscount(0); }}>
+                      <option value="">Selecione as parcelas</option>
+                      {cashAvailable && <option value="cash">À vista</option>}
+                      {availableInstallments.map(installment => <option key={installment.id} value={installment.id}>{installment.installments === 1 ? "1 vez · À vista" : `${installment.installments} vezes`} · {installment.label}</option>)}
+                    </select>
+                  </label>
+                </div>
+                {installmentId && <h3 className="text-sm font-semibold">Condição comercial{matchingConditions.length > 1 ? " *" : ""}</h3>}
+                <div className="grid gap-3 sm:grid-cols-2">
+                {matchingConditions.map((cond) => {
                   const method = data?.methods.find((m) => m.id === cond.payment_method_id);
                   const inst = data?.installments.find((i) => i.id === cond.installment_option_id);
                   const disc = data?.discounts.find((d) => d.id === cond.discount_rule_id);
                   const isSelected = conditionId === cond.id;
                   return (
-                    <button
+                    <Button
+                      variant="outline"
                       key={cond.id}
                       type="button"
-                      onClick={() => setConditionId(cond.id)}
-                      className={`w-full text-left rounded-xl border-2 p-4 transition-all ${
+                      aria-pressed={isSelected}
+                      onClick={() => { setConditionId(cond.id); setAdicionalDiscount(0); }}
+                      className={`h-auto w-full min-w-0 whitespace-normal flex-col items-stretch text-left rounded-lg border-2 p-4 transition-all ${
                         isSelected
                           ? "border-primary bg-primary/5 shadow-md"
                           : "border-border bg-card hover:border-primary/40 hover:bg-muted/40"
@@ -590,15 +638,16 @@ function SimulationPage() {
                       <div className="mt-2 space-y-1 text-xs text-muted-foreground">
                         {method && <div>💳 {method.name}{inst ? ` · ${inst.label} (${inst.installments}x)` : ""}</div>}
                         {disc && (
-                          <div className="text-emerald-600 font-semibold">
+                          <div className="text-success font-semibold">
                             🎯 {disc.name} — {disc.kind === "percentage" ? `${disc.value}%` : brl.format(Number(disc.value))} de desconto
                           </div>
                         )}
-                        <div className="text-amber-600">⏱ Validade: {cond.validity_minutes} minutos</div>
+                        <div className="text-muted-foreground">Validade: {cond.validity_minutes} minutos</div>
                       </div>
-                    </button>
+                    </Button>
                   );
                 })}
+                </div>
               </div>
             )}
 
@@ -662,7 +711,7 @@ function SimulationPage() {
 
           <div className="mt-5 space-y-4">
             <ProposalPriceBreakdown coursePrice={calc.coursePrice} enrollmentFee={calc.enrollmentFee} materialDiscount={calc.material} subtotal={calc.subtotal} original={calc.original} final={calc.final} discounts={calc.breakdown.filter(item => item.name !== "Desconto de Material Didático")} />
-            <p className="text-center text-xs font-semibold">{calc.count > 1 ? `${calc.count}x de ${brl.format(calc.portion)}` : "À vista"}</p>
+            {selectedCondition && <p className="text-center text-xs font-semibold">{selectedMethod?.name} · {formatInstallmentSummary(calc.final, calc.count, calc.portion)}</p>}
 
             {conditionId && (
               <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground bg-background/80 rounded-md py-1.5 px-3 border border-border">
