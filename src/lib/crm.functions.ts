@@ -130,10 +130,9 @@ export const getWorkspace = createServerFn({ method: "GET" })
       db.from("profiles").select("*"),
       db.from("user_roles").select("*"),
       db.from("teams").select("*").eq("status", "active"),
-      db.from("enrollment_settings").select("default_fee").eq("id", "global").single(),
+      db.from("enrollment_settings").select("*").eq("id", "global").maybeSingle(),
     ]);
 
-    if (enrollmentRes.error) throw new Error("Não foi possível carregar o valor de matrícula.");
     const userRoles = (rolesRes.data ?? []).map((r) => r.role);
     const isAdmin = userRoles.includes("admin");
     const isManager = userRoles.includes("manager");
@@ -209,7 +208,9 @@ export const getWorkspace = createServerFn({ method: "GET" })
       isSeller,
       areas: areasRes.data ?? [],
       courses: coursesRes.data ?? [],
-      enrollmentFee: Number(enrollmentRes.data.default_fee),
+      enrollmentFee: Number(enrollmentRes?.data?.default_fee ?? 450),
+      enrollmentPromotionalFee: Number((enrollmentRes?.data as any)?.promotional_fee ?? 350),
+      promotionalActive: Boolean((enrollmentRes?.data as any)?.promotional_active ?? true),
       methods: methodsRes.data ?? [],
       installments: installmentsRes.data ?? [],
       prices: pricesRes.data ?? [],
@@ -264,6 +265,7 @@ const proposalInput = z.object({
   installmentId: z.string().uuid().optional().or(z.literal("")),
   discountId: z.string().uuid().optional().or(z.literal("")),
   conditionId: z.string().uuid(),
+  enrollmentCondition: z.enum(["normal", "promotional"]).optional().default("promotional"),
   matriculaDiscount: z.number().nonnegative().optional().default(0),
   entradaDiscount: z.number().nonnegative().optional().default(0),
   modularDiscounts: z.array(modularDiscountItem).optional().default([]),
@@ -335,23 +337,36 @@ export const createProposal = createServerFn({ method: "POST" })
     });
     if (!authorized.length) throw new Error("A combinação de pagamento, parcelas e condição não está autorizada ou venceu. Atualize a simulação.");
 
-    const enrollment = await db.from("enrollment_settings").select("default_fee").eq("id", "global").single();
-    if (enrollment.error) throw new Error("Não foi possível consultar a matrícula vigente.");
-    if (data.matriculaDiscount || data.entradaDiscount) throw new Error("Matrícula é um acréscimo; utilize os descontos configurados.");
+    const enrollment = await db.from("enrollment_settings").select("*").eq("id", "global").maybeSingle();
+    const globalDefaultFee = Number(enrollment.data?.default_fee ?? 450);
+    const globalPromotionalFee = Number((enrollment.data as any)?.promotional_fee ?? 350);
+    const globalPromotionalActive = (enrollment.data as any)?.promotional_active ?? true;
+
+    const courseNormalFee = course.enrollment_fee != null ? Number(course.enrollment_fee) : globalDefaultFee;
+    const coursePromoFee = (course as any).promotional_enrollment_fee != null ? Number((course as any).promotional_enrollment_fee) : globalPromotionalFee;
+
     const additional = data.modularDiscounts.reduce((sum, item) => sum + item.amount, 0);
-    if (additional > 0 && !roles.includes("admin") && !roles.includes("manager")) throw new Error("O desconto adicional exige autorização da gestão.");
+    if (additional > 0 && !roles.includes("admin") && !roles.includes("manager")) {
+      throw new Error("O desconto adicional exige autorização da gestão.");
+    }
+
     const calc = calculateCommercialPrice({
       coursePrice: Number(configuredPrice.price),
-      enrollmentFee: Number(course.enrollment_fee ?? enrollment.data.default_fee),
-      materialDiscount: Number(course.material_discount),
+      enrollmentFee: courseNormalFee,
+      enrollmentPromotionalFee: coursePromoFee,
+      enrollmentCondition: data.enrollmentCondition,
+      promotionalActive: globalPromotionalActive,
+      materialDiscount: Number(course.material_discount ?? 0),
+      materialBilling: (course as any).material_billing ?? "included",
       special: discountRule ? { ...discountRule, value: Number(discountRule.value) } : null,
       additional,
       installments: Number(installment.installments),
     });
-    const originalPrice = calc.original;
+
+    const originalPrice = calc.coursePrice;
     const discountItems = calc.breakdown;
-    const finalPrice = calc.final;
-    const finalDiscountAmount = calc.economy;
+    const finalPrice = calc.totalContract;
+    const finalDiscountAmount = calc.courseEconomy;
     const countInstallments = calc.count;
     const installmentValue = calc.portion;
 
@@ -440,14 +455,23 @@ export const createProposal = createServerFn({ method: "POST" })
       userNotes: data.notes || "",
       discountBreakdown: discountItems,
       coursePrice: calc.coursePrice,
-      enrollmentFee: calc.enrollmentFee,
+      courseNet: calc.courseNet,
+      installmentBalance: calc.installmentBalance,
+      enrollmentNormal: calc.enrollmentFee,
+      enrollmentPromotional: calc.enrollmentPromotionalFee,
+      enrollmentDiscount: calc.enrollmentDiscount,
+      enrollmentPayable: calc.enrollmentPayable,
+      enrollmentCondition: calc.enrollmentCondition,
       materialDiscount: calc.material,
-      subtotal: calc.subtotal,
+      materialBilling: calc.materialBilling,
       conditionId: condition.id,
       conditionName: condition.name,
       paymentMethodId: method.id,
       installmentOptionId: installment.id,
-      lastInstallmentValue: Math.round((calc.final - calc.portion * (calc.count - 1)) * 100) / 100,
+      installmentsCount: countInstallments,
+      installmentValue: installmentValue,
+      lastInstallmentValue: calc.lastPortion,
+      totalContract: calc.totalContract,
       validityMinutes,
       calculatedAt: new Date().toISOString(),
     });
@@ -464,16 +488,16 @@ export const createProposal = createServerFn({ method: "POST" })
         course_name: course.name,
         course_workload_hours: course.workload_hours,
         course_modality: course.modality,
-        original_price: originalPrice,
+        original_price: calc.coursePrice,
         course_price_snapshot: calc.coursePrice,
         enrollment_fee_snapshot: calc.enrollmentFee,
         material_discount_snapshot: calc.material,
-        subtotal_snapshot: calc.subtotal,
+        subtotal_snapshot: calc.courseNet,
         discount_name: discountSummaryName,
         discount_kind: discountRule?.kind ?? "fixed",
         discount_value: finalDiscountAmount,
         discount_amount: finalDiscountAmount,
-        final_price: finalPrice,
+        final_price: calc.totalContract,
         payment_method_name: method.name,
         installments: countInstallments,
         installment_value: installmentValue,
@@ -486,6 +510,24 @@ export const createProposal = createServerFn({ method: "POST" })
       .single();
 
     if (created.error || !created.data) throw new Error("Não foi possível salvar a proposta.");
+
+    // Populate proposal_discounts relational table if exists
+    try {
+      if (discountItems.length > 0) {
+        await (db as any).from("proposal_discounts").insert(
+          discountItems.map((item, idx) => ({
+            proposal_id: created.data.id,
+            name: item.name,
+            kind: item.kind,
+            value: item.value,
+            amount: item.amount,
+            sort_order: idx + 1,
+          }))
+        );
+      }
+    } catch {
+      // Fail-safe
+    }
 
     // Proposal events and student history in fail-safe blocks
     try {

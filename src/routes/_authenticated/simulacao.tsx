@@ -68,6 +68,7 @@ function SimulationPage() {
   const [conditionId, setConditionId] = useState("");
   const [paymentMethodId, setPaymentMethodId] = useState("");
   const [installmentId, setInstallmentId] = useState("");
+  const [enrollmentCondition, setEnrollmentCondition] = useState<"normal" | "promotional">("promotional");
 
   // Internal seller-only overrides (never shown to student)
   const [showInternalOverrides, setShowInternalOverrides] = useState(false);
@@ -157,15 +158,26 @@ function SimulationPage() {
     setPaymentMethodId(""); setInstallmentId(""); setConditionId(""); setAdicionalDiscount(0);
   }
 
+  const globalNormalFee = Number((data as any)?.enrollmentFee ?? 450);
+  const globalPromoFee = Number((data as any)?.enrollmentPromotionalFee ?? 350);
+  const globalPromoActive = Boolean((data as any)?.promotionalActive ?? true);
+
+  const courseNormalFee = course?.enrollment_fee != null ? Number(course.enrollment_fee) : globalNormalFee;
+  const coursePromoFee = (course as any)?.promotional_enrollment_fee != null ? Number((course as any).promotional_enrollment_fee) : globalPromoFee;
+
   // Real-time calculation engine
   const calc = useMemo(() => calculateCommercialPrice({
     coursePrice: Number(configuredPrice?.price ?? course?.base_price ?? 0),
-    enrollmentFee: course ? Number(course.enrollment_fee ?? data?.enrollmentFee ?? 0) : 0,
+    enrollmentFee: courseNormalFee,
+    enrollmentPromotionalFee: coursePromoFee,
+    enrollmentCondition,
+    promotionalActive: globalPromoActive,
     materialDiscount: Number(course?.material_discount ?? 0),
+    materialBilling: ((course as any)?.material_billing as any) ?? "included",
     special: discountRule ? { ...discountRule, value: Number(discountRule.value) } : null,
     additional: adicionalDiscount,
     installments: selectedInstallment?.installments ?? 1,
-  }), [configuredPrice, course, data?.enrollmentFee, discountRule, adicionalDiscount, selectedInstallment]);
+  }), [configuredPrice, course, courseNormalFee, coursePromoFee, enrollmentCondition, globalPromoActive, discountRule, adicionalDiscount, selectedInstallment]);
 
   const validUntilDate = useMemo(() => new Date(Date.now() + validityMinutes * 60000), [validityMinutes]);
 
@@ -184,6 +196,7 @@ function SimulationPage() {
         installmentId: installmentId === "cash" ? undefined : installmentId,
         discountId: discountRuleId || undefined,
         conditionId,
+        enrollmentCondition,
         modularDiscounts:
           adicionalDiscount > 0
             ? [{ name: "Desconto Adicional Autorizado", kind: "fixed", value: adicionalDiscount, amount: adicionalDiscount }]
@@ -286,14 +299,78 @@ function SimulationPage() {
             </div>
           </div>
 
-          <div className="rounded-lg border border-border bg-card p-6 md:p-8">
-            <ProposalPriceBreakdown coursePrice={calc.coursePrice} enrollmentFee={calc.enrollmentFee} materialDiscount={calc.material} subtotal={calc.subtotal} original={calc.original} final={calc.final} discounts={calc.breakdown.filter(item => item.name !== "Desconto de Material Didático")} />
-            <p className="mt-4 text-center text-sm font-semibold">{formatInstallmentSummary(calc.final, calc.count, calc.portion)} {selectedMethod?.name && `· ${selectedMethod.name}`}</p>
-            <p className="mt-2 text-center text-xs text-muted-foreground">Condição válida até {dateTime.format(validUntilDate)}</p>
+          <div className="rounded-2xl border-2 border-border bg-card p-6 md:p-10 shadow-xl max-w-2xl mx-auto w-full">
+            <div className="text-center pb-6 border-b border-border">
+              <h2 className="text-2xl md:text-3xl font-black uppercase tracking-tight text-foreground">
+                {course?.name}
+              </h2>
+            </div>
+
+            <div className="py-6 space-y-4">
+              {/* Matrícula */}
+              <div className="flex items-center justify-between p-4 rounded-xl bg-primary/5 border border-primary/20">
+                <div>
+                  <span className="text-xs font-bold uppercase tracking-wider text-primary block">
+                    {calc.isPromotionalEnrollment ? "Matrícula Promocional" : "Matrícula"}
+                  </span>
+                  <span className="text-xs text-muted-foreground">Cobrada separadamente</span>
+                </div>
+                <div className="text-right">
+                  {calc.isPromotionalEnrollment && calc.enrollmentDiscount > 0 && (
+                    <span className="text-xs text-muted-foreground line-through block">
+                      {brl.format(calc.enrollmentFee)}
+                    </span>
+                  )}
+                  <strong className="text-2xl font-black text-primary tabular-nums">
+                    {brl.format(calc.enrollmentPayable)}
+                  </strong>
+                </div>
+              </div>
+
+              {/* Curso parcelado */}
+              <div className="flex items-center justify-between p-4 rounded-xl bg-muted/40 border border-border">
+                <div>
+                  <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground block">
+                    Curso com condição especial
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    {selectedMethod?.name || "Boleto bancário"}
+                  </span>
+                </div>
+                <strong className="text-xl md:text-2xl font-extrabold text-foreground tabular-nums">
+                  {formatInstallmentSummary(calc.installmentBalance, calc.count, calc.portion)}
+                </strong>
+              </div>
+
+              {/* Material Didático */}
+              <div className="flex items-center justify-between px-4 py-2 text-xs">
+                <span className="text-muted-foreground font-medium">Material didático:</span>
+                <span className="font-bold text-emerald-700 dark:text-emerald-400 flex items-center gap-1.5">
+                  <CheckCircle2 size={14} /> Incluso na formação
+                </span>
+              </div>
+
+              {/* Total Geral da Contratação */}
+              <div className="p-5 rounded-xl bg-gradient-to-r from-primary/10 via-card to-primary/5 border-2 border-primary flex items-center justify-between">
+                <div>
+                  <span className="text-xs font-black uppercase tracking-wider text-primary block">
+                    Total da Contratação
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    Curso ({formatInstallmentSummary(calc.installmentBalance, calc.count, calc.portion)}) + Matrícula ({brl.format(calc.enrollmentPayable)})
+                  </span>
+                </div>
+                <strong className="text-3xl font-black text-primary tabular-nums">
+                  {brl.format(calc.totalContract)}
+                </strong>
+              </div>
+            </div>
+
+            <p className="mt-2 text-center text-xs text-muted-foreground">Condição comercial válida até {dateTime.format(validUntilDate)}</p>
 
             {/* Triggers */}
             {((data?.triggers ?? []) as Array<{ id: string; is_active: boolean; template_text: string }>).filter(t => t.is_active).length > 0 && (
-              <div className="mt-8 pt-6 border-t border-border flex flex-wrap items-center justify-center gap-3">
+              <div className="mt-6 pt-6 border-t border-border flex flex-wrap items-center justify-center gap-3">
                 {((data?.triggers ?? []) as Array<{ id: string; is_active: boolean; template_text: string }>)
                   .filter((t) => t.is_active)
                   .slice(0, 3)
@@ -357,9 +434,10 @@ function SimulationPage() {
               <div className="mt-5 space-y-2.5 rounded-lg border border-border bg-muted/40 p-4 text-sm">
                 <div className="flex justify-between"><span className="text-muted-foreground">Aluno:</span><span className="font-bold">{studentName}</span></div>
                 <div className="flex justify-between"><span className="text-muted-foreground">Curso:</span><span className="font-semibold">{course?.name}</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">Valor Original:</span><span className="line-through">{brl.format(calc.original)}</span></div>
-                <div className="flex justify-between text-emerald-600 font-semibold"><span>Economia Total:</span><span>− {brl.format(calc.economy)}</span></div>
-                <div className="flex justify-between border-t border-border pt-2 text-base font-bold text-primary"><span>Valor Final:</span><span>{brl.format(calc.final)}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Valor de Tabela:</span><span className="tabular-nums font-semibold">{brl.format(calc.coursePrice)}</span></div>
+                <div className="flex justify-between font-semibold"><span className="text-muted-foreground">Curso parcelado ({calc.count}x):</span><span className="tabular-nums text-foreground">{formatInstallmentSummary(calc.installmentBalance, calc.count, calc.portion)}</span></div>
+                <div className="flex justify-between font-semibold border-t border-border/60 pt-2"><span className="text-muted-foreground">Matrícula (à parte):</span><span className="tabular-nums text-foreground">{brl.format(calc.enrollmentPayable)}</span></div>
+                <div className="flex justify-between border-t border-border pt-2 text-base font-bold text-primary"><span>Total Geral da Contratação:</span><span className="tabular-nums">{brl.format(calc.totalContract)}</span></div>
               </div>
 
               {error && <p className="mt-3 text-xs text-destructive">{error}</p>}
@@ -590,6 +668,82 @@ function SimulationPage() {
               </div>
             ) : (
               <div className="space-y-4">
+                {/* Seleção da Condição de Matrícula */}
+                <div className="rounded-xl border border-border bg-muted/30 p-4 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold uppercase tracking-wider text-foreground">
+                      Condição da Matrícula (cobrada separadamente)
+                    </span>
+                    <span className="text-[11px] text-muted-foreground italic">
+                      Não integra as parcelas do curso
+                    </span>
+                  </div>
+
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <button
+                      type="button"
+                      disabled={!globalPromoActive}
+                      onClick={() => setEnrollmentCondition("promotional")}
+                      className={`p-3 rounded-lg border-2 text-left transition-all cursor-pointer ${
+                        enrollmentCondition === "promotional"
+                          ? "border-primary bg-primary/10 shadow-xs ring-1 ring-primary/40"
+                          : "border-border bg-card hover:border-primary/40"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-foreground">Matrícula Promocional</span>
+                        {enrollmentCondition === "promotional" && (
+                          <span className="grid size-4 place-items-center rounded-full bg-primary text-primary-foreground">
+                            <CheckCircle2 size={10} />
+                          </span>
+                        )}
+                      </div>
+                      <div className="mt-1 flex items-baseline gap-2">
+                        <strong className="text-base font-extrabold text-primary">
+                          {brl.format(coursePromoFee)}
+                        </strong>
+                        {courseNormalFee > coursePromoFee && (
+                          <span className="text-xs text-muted-foreground line-through">
+                            {brl.format(courseNormalFee)}
+                          </span>
+                        )}
+                      </div>
+                      {courseNormalFee > coursePromoFee && (
+                        <span className="text-[11px] text-emerald-700 dark:text-emerald-400 font-semibold block mt-0.5">
+                          Desconto promocional de − {brl.format(courseNormalFee - coursePromoFee)}
+                        </span>
+                      )}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setEnrollmentCondition("normal")}
+                      className={`p-3 rounded-lg border-2 text-left transition-all cursor-pointer ${
+                        enrollmentCondition === "normal"
+                          ? "border-primary bg-primary/10 shadow-xs ring-1 ring-primary/40"
+                          : "border-border bg-card hover:border-primary/40"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-foreground">Matrícula Normal</span>
+                        {enrollmentCondition === "normal" && (
+                          <span className="grid size-4 place-items-center rounded-full bg-primary text-primary-foreground">
+                            <CheckCircle2 size={10} />
+                          </span>
+                        )}
+                      </div>
+                      <div className="mt-1">
+                        <strong className="text-base font-extrabold text-foreground">
+                          {brl.format(courseNormalFee)}
+                        </strong>
+                      </div>
+                      <span className="text-[11px] text-muted-foreground block mt-0.5">
+                        Cobrança padrão sem promoção
+                      </span>
+                    </button>
+                  </div>
+                </div>
+
                 <div className="grid gap-4 sm:grid-cols-2">
                   <label className="text-sm font-medium">
                     Forma de pagamento *
@@ -710,8 +864,27 @@ function SimulationPage() {
           </div>
 
           <div className="mt-5 space-y-4">
-            <ProposalPriceBreakdown coursePrice={calc.coursePrice} enrollmentFee={calc.enrollmentFee} materialDiscount={calc.material} subtotal={calc.subtotal} original={calc.original} final={calc.final} discounts={calc.breakdown.filter(item => item.name !== "Desconto de Material Didático")} />
-            {selectedCondition && <p className="text-center text-xs font-semibold">{selectedMethod?.name} · {formatInstallmentSummary(calc.final, calc.count, calc.portion)}</p>}
+            <ProposalPriceBreakdown
+              courseName={course?.name}
+              coursePrice={calc.coursePrice}
+              courseNet={calc.courseNet}
+              installmentBalance={calc.installmentBalance}
+              installments={calc.count}
+              installmentValue={calc.portion}
+              lastInstallmentValue={calc.lastPortion}
+              paymentMethodName={selectedMethod?.name}
+              enrollmentFee={calc.enrollmentFee}
+              enrollmentPromotionalFee={calc.enrollmentPromotionalFee}
+              enrollmentDiscount={calc.enrollmentDiscount}
+              enrollmentPayable={calc.enrollmentPayable}
+              enrollmentCondition={calc.enrollmentCondition}
+              materialDiscount={calc.material}
+              materialBilling={calc.materialBilling}
+              subtotal={calc.courseNet}
+              original={calc.coursePrice}
+              final={calc.totalContract}
+              discounts={calc.breakdown}
+            />
 
             {conditionId && (
               <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground bg-background/80 rounded-md py-1.5 px-3 border border-border">
@@ -786,9 +959,10 @@ function SimulationPage() {
             <div className="mt-5 space-y-2 rounded-lg border border-border bg-muted/40 p-4 text-sm">
               <div className="flex justify-between"><span className="text-muted-foreground">Aluno:</span><span className="font-bold">{studentName}</span></div>
               <div className="flex justify-between"><span className="text-muted-foreground">Curso:</span><span className="font-semibold">{course?.name}</span></div>
-              <div className="flex justify-between"><span className="text-muted-foreground">Valor Original:</span><span className="line-through">{brl.format(calc.original)}</span></div>
-              <div className="flex justify-between text-emerald-600 font-semibold"><span>Economia Total:</span><span>− {brl.format(calc.economy)}</span></div>
-              <div className="flex justify-between border-t border-border pt-2 text-base font-bold text-primary"><span>Valor Final:</span><span>{brl.format(calc.final)}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Valor de Tabela:</span><span className="tabular-nums font-semibold">{brl.format(calc.coursePrice)}</span></div>
+              <div className="flex justify-between font-semibold"><span className="text-muted-foreground">Curso parcelado ({calc.count}x):</span><span className="tabular-nums text-foreground">{formatInstallmentSummary(calc.installmentBalance, calc.count, calc.portion)}</span></div>
+              <div className="flex justify-between font-semibold border-t border-border/60 pt-2"><span className="text-muted-foreground">Matrícula (à parte):</span><span className="tabular-nums text-foreground">{brl.format(calc.enrollmentPayable)}</span></div>
+              <div className="flex justify-between border-t border-border pt-2 text-base font-bold text-primary"><span>Total Geral da Contratação:</span><span className="tabular-nums">{brl.format(calc.totalContract)}</span></div>
             </div>
 
             {error && <p className="mt-3 text-xs text-destructive">{error}</p>}

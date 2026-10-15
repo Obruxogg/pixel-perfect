@@ -156,9 +156,21 @@ function ProposalsPage() {
     const student = data.students.find((s) => s.id === presentationProposal.student_id);
     const original = Number(presentationProposal.original_price);
     const finalPrice = Number(presentationProposal.final_price);
-    const economy = Number(presentationProposal.discount_amount);
     const installments = Number(presentationProposal.installments);
     const installmentVal = Number(presentationProposal.installment_value);
+
+    let parsedNotes: any = null;
+    try {
+      parsedNotes = JSON.parse(presentationProposal.notes ?? "");
+    } catch {
+      // Plain text notes
+    }
+
+    const courseTablePrice = Number(parsedNotes?.coursePrice ?? presentationProposal.course_price_snapshot ?? original);
+    const courseNetPrice = Number(parsedNotes?.courseNet ?? presentationProposal.subtotal_snapshot ?? (installments * installmentVal));
+    const parcelBalance = Number(parsedNotes?.installmentBalance ?? courseNetPrice);
+    const enrollmentToPay = Number(parsedNotes?.enrollmentPayable ?? presentationProposal.enrollment_fee_snapshot ?? (finalPrice - parcelBalance));
+    const isPromo = parsedNotes?.enrollmentCondition === "promotional" || (Number(parsedNotes?.enrollmentDiscount ?? 0) > 0);
 
     return (
       <div className="presentation-overlay p-6 md:p-12">
@@ -170,7 +182,7 @@ function ProposalsPage() {
             <div>
               <strong className="block text-lg font-extrabold text-foreground tracking-tight">Instituto Mix</strong>
               <span className="text-xs text-primary uppercase tracking-widest font-bold block">
-                Proposta Comercial
+                Proposta Comercial Oficial
               </span>
             </div>
           </div>
@@ -190,17 +202,72 @@ function ProposalsPage() {
             Apresentada para: <b>{student?.full_name ?? "Aluno"}</b>
           </p>
 
-          <div className="mt-8 rounded-lg border border-border bg-card p-6 md:p-8 max-w-2xl mx-auto w-full">
-            <ProposalPriceBreakdown
-              coursePrice={presentationProposal.course_price_snapshot}
-              enrollmentFee={presentationProposal.enrollment_fee_snapshot}
-              materialDiscount={presentationProposal.material_discount_snapshot}
-              subtotal={presentationProposal.subtotal_snapshot}
-              original={original}
-              final={finalPrice}
-              discounts={savedDiscounts(presentationProposal)}
-            />
-            <p className="mt-4 text-sm font-semibold">{formatInstallmentSummary(finalPrice, installments, installmentVal)} · {presentationProposal.payment_method_name}</p>
+          <div className="rounded-2xl border-2 border-border bg-card p-6 md:p-10 shadow-xl max-w-2xl mx-auto w-full mt-6 text-left">
+            <div className="text-center pb-6 border-b border-border">
+              <h2 className="text-2xl font-black uppercase tracking-tight text-foreground">
+                {presentationProposal.course_name}
+              </h2>
+            </div>
+
+            <div className="py-6 space-y-4">
+              {/* Matrícula */}
+              <div className="flex items-center justify-between p-4 rounded-xl bg-primary/5 border border-primary/20">
+                <div>
+                  <span className="text-xs font-bold uppercase tracking-wider text-primary block">
+                    {isPromo ? "Matrícula Promocional" : "Matrícula"}
+                  </span>
+                  <span className="text-xs text-muted-foreground">Cobrada separadamente</span>
+                </div>
+                <div className="text-right">
+                  {isPromo && parsedNotes?.enrollmentNormal && (
+                    <span className="text-xs text-muted-foreground line-through block">
+                      {brl.format(Number(parsedNotes.enrollmentNormal))}
+                    </span>
+                  )}
+                  <strong className="text-2xl font-black text-primary tabular-nums">
+                    {brl.format(enrollmentToPay)}
+                  </strong>
+                </div>
+              </div>
+
+              {/* Curso parcelado */}
+              <div className="flex items-center justify-between p-4 rounded-xl bg-muted/40 border border-border">
+                <div>
+                  <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground block">
+                    Curso com condição especial
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    {presentationProposal.payment_method_name || "Boleto bancário"}
+                  </span>
+                </div>
+                <strong className="text-xl md:text-2xl font-extrabold text-foreground tabular-nums">
+                  {formatInstallmentSummary(parcelBalance, installments, installmentVal)}
+                </strong>
+              </div>
+
+              {/* Material Didático */}
+              <div className="flex items-center justify-between px-4 py-2 text-xs">
+                <span className="text-muted-foreground font-medium">Material didático:</span>
+                <span className="font-bold text-emerald-700 dark:text-emerald-400 flex items-center gap-1.5">
+                  <CheckCircle2 size={14} /> Incluso na formação
+                </span>
+              </div>
+
+              {/* Total Geral da Contratação */}
+              <div className="p-5 rounded-xl bg-gradient-to-r from-primary/10 via-card to-primary/5 border-2 border-primary flex items-center justify-between">
+                <div>
+                  <span className="text-xs font-black uppercase tracking-wider text-primary block">
+                    Total da Contratação
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    Curso ({formatInstallmentSummary(parcelBalance, installments, installmentVal)}) + Matrícula ({brl.format(enrollmentToPay)})
+                  </span>
+                </div>
+                <strong className="text-3xl font-black text-primary tabular-nums">
+                  {brl.format(finalPrice)}
+                </strong>
+              </div>
+            </div>
 
             {presentationProposal.valid_until && (
               <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground mt-4">
@@ -358,7 +425,11 @@ function ProposalsPage() {
                   <span>{p.payment_method_name}</span>
                   <span>•</span>
                   <span>
-                    {formatInstallmentSummary(Number(p.final_price), Number(p.installments), Number(p.installment_value))}
+                    {formatInstallmentSummary(
+                      Number(p.subtotal_snapshot ?? (Number(p.installments) * Number(p.installment_value))),
+                      Number(p.installments),
+                      Number(p.installment_value)
+                    )}
                   </span>
                   {p.discount_name && (
                     <>
@@ -369,7 +440,22 @@ function ProposalsPage() {
                 </div>
 
                 <div className="mt-4 max-w-xl">
-                  <ProposalPriceBreakdown coursePrice={p.course_price_snapshot} enrollmentFee={p.enrollment_fee_snapshot} materialDiscount={p.material_discount_snapshot} subtotal={p.subtotal_snapshot} original={original} final={finalPrice} discounts={savedDiscounts(p)} />
+                  <ProposalPriceBreakdown
+                    courseName={p.course_name}
+                    coursePrice={p.course_price_snapshot ?? Number(p.original_price)}
+                    courseNet={p.subtotal_snapshot}
+                    installmentBalance={p.subtotal_snapshot}
+                    installments={Number(p.installments)}
+                    installmentValue={Number(p.installment_value)}
+                    paymentMethodName={p.payment_method_name}
+                    enrollmentFee={p.enrollment_fee_snapshot}
+                    enrollmentPayable={p.enrollment_fee_snapshot}
+                    materialDiscount={p.material_discount_snapshot}
+                    subtotal={p.subtotal_snapshot}
+                    original={Number(p.original_price)}
+                    final={Number(p.final_price)}
+                    discounts={savedDiscounts(p)}
+                  />
                 </div>
               </div>
 
