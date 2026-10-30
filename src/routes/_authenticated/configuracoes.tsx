@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { EnrollmentSettings, CourseEnrollmentFields } from "@/components/enrollment-settings";
+import { AuditLogsView } from "@/components/audit-logs-view";
 import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
 import { saveCatalogItem, manageSeller, transferStudents, toggleCatalogItemStatus, savePaymentMethod, saveInstallmentOption } from "@/lib/crm.functions";
@@ -68,7 +69,7 @@ function SettingsPage() {
   }
 
   // Active Tab
-  const [activeTab, setActiveTab] = useState<"team" | "managers" | "conditions" | "triggers" | "courses" | "discounts" | "crm" | "payments" | "installments" | "enrollment">("team");
+  const [activeTab, setActiveTab] = useState<"team" | "managers" | "conditions" | "triggers" | "courses" | "discounts" | "crm" | "payments" | "installments" | "enrollment" | "audit">("team");
   const saveMethod = useServerFn(savePaymentMethod);
   const saveInst = useServerFn(saveInstallmentOption);
 
@@ -522,6 +523,15 @@ function SettingsPage() {
           onClick={() => setActiveTab("crm")}
         >
           <KanbanSquare size={16} /> Etapas do CRM
+        </Button>
+
+        <Button
+          variant={activeTab === "audit" ? "default" : "ghost"}
+          size="sm"
+          className="gap-2 font-semibold text-amber-700 dark:text-amber-400"
+          onClick={() => setActiveTab("audit")}
+        >
+          <ShieldAlert size={16} /> Auditoria Comercial
         </Button>
       </div>
 
@@ -1755,6 +1765,15 @@ function SettingsPage() {
               ))}
             </div>
           </div>
+        </section>
+      )}
+
+      {/* ========================================================= */}
+      {/* TAB 11: AUDITORIA DO SISTEMA & SEGURANÇA */}
+      {/* ========================================================= */}
+      {activeTab === "audit" && (
+        <section className="space-y-6">
+          <AuditLogsView />
         </section>
       )}
     </AppShell>

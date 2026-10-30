@@ -10,6 +10,9 @@ export type PriceBreakdownProps = {
   installments?: number | undefined;
   installmentValue?: number | undefined;
   lastInstallmentValue?: number | undefined;
+  originalPortion?: number | undefined;
+  portionSavings?: number | undefined;
+  hasPortionDiscount?: boolean | undefined;
   paymentMethodName?: string | undefined;
   enrollmentFee?: number | null | undefined;
   enrollmentPromotionalFee?: number | null | undefined;
@@ -33,6 +36,9 @@ export function ProposalPriceBreakdown({
   installments = 1,
   installmentValue,
   lastInstallmentValue,
+  originalPortion,
+  portionSavings,
+  hasPortionDiscount,
   paymentMethodName,
   enrollmentFee,
   enrollmentPromotionalFee,
@@ -53,6 +59,11 @@ export function ProposalPriceBreakdown({
   const parcelable = installmentBalance ?? netCourse;
   const count = Math.max(1, installments || 1);
   const portionVal = installmentValue ?? (count > 0 ? Math.floor((parcelable * 100) / count) / 100 : parcelable);
+
+  // Installment anchoring (De / Por)
+  const origPortion = originalPortion ?? (count > 0 ? Math.round((tablePrice / count) * 100) / 100 : tablePrice);
+  const portSavings = portionSavings != null ? portionSavings : Math.max(0, Math.round((origPortion - portionVal) * 100) / 100);
+  const hasDiscount = hasPortionDiscount ?? (portSavings > 0);
 
   // Enrollment handling
   const normEnrollment = enrollmentFee != null ? Number(enrollmentFee) : 0;
@@ -115,6 +126,29 @@ export function ProposalPriceBreakdown({
             <dt className="text-foreground">Valor líquido do curso (saldo parcelável)</dt>
             <dd className="tabular-nums text-primary">{brl.format(parcelable)}</dd>
           </div>
+
+          {/* Ancoragem Visual da Parcela: De / Por + Badge de Economia */}
+          {count > 1 && hasDiscount && (
+            <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 p-2.5 flex items-center justify-between text-xs">
+              <div className="flex items-center gap-1.5 text-emerald-800 dark:text-emerald-300 font-semibold">
+                <Sparkles size={13} className="text-emerald-600 shrink-0" />
+                <span>Parcelamento Especial:</span>
+              </div>
+              <div className="text-right">
+                <div className="flex items-center justify-end gap-1.5">
+                  <span className="text-[11px] text-muted-foreground line-through tabular-nums">
+                    De {brl.format(origPortion)}
+                  </span>
+                  <span className="text-xs font-extrabold text-foreground tabular-nums">
+                    por {brl.format(portionVal)}/mês
+                  </span>
+                </div>
+                <span className="inline-block mt-0.5 rounded bg-emerald-600 text-white font-bold text-[10px] px-1.5 py-0.2 tracking-tight">
+                  Economia de {brl.format(portSavings)} por parcela
+                </span>
+              </div>
+            </div>
+          )}
 
           {paymentMethodName && (
             <div className="mt-2 rounded bg-muted/50 p-2.5 flex items-center justify-between text-xs">

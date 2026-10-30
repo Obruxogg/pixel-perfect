@@ -16,8 +16,13 @@ import {
   GraduationCap,
   Sparkles,
   ArrowLeft,
+  Share2,
+  Printer,
 } from "lucide-react";
 import { ProposalPriceBreakdown } from "@/components/proposal-price-breakdown";
+import { EnrollmentCompletionModal } from "@/components/enrollment-completion-modal";
+import { EnrollmentReceiptModal, StudentEnrollmentDetails } from "@/components/enrollment-receipt-modal";
+import { buildProposalWhatsAppMessage, openWhatsAppShare } from "@/lib/whatsapp";
 import { formatInstallmentSummary } from "@/lib/commercial-options";
 import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
@@ -61,12 +66,65 @@ function ProposalsPage() {
 
   // Modals
   const [closingProposalId, setClosingProposalId] = useState<string | null>(null);
+  const [enrollmentModalProposal, setEnrollmentModalProposal] = useState<{ proposal: any; student: any } | null>(null);
+  const [viewReceiptProposal, setViewReceiptProposal] = useState<{ proposal: any; student: StudentEnrollmentDetails } | null>(null);
   const [deferProposalId, setDeferProposalId] = useState<string | null>(null);
   const [deferDate, setDeferDate] = useState("");
   const [deferTime, setDeferTime] = useState("10:00");
   const [deferNotes, setDeferNotes] = useState("");
   const [modalBusy, setModalBusy] = useState(false);
   const [modalMsg, setModalMsg] = useState("");
+
+  function openReceiptForProposal(p: any, s: any) {
+    let studentData: StudentEnrollmentDetails = {
+      fullName: s?.full_name || "Aluno",
+      cpf: "—",
+      rg: "—",
+      rgEmitter: "SSP",
+      birthDate: "—",
+      isMinor: false,
+      cep: "—",
+      street: "—",
+      number: "—",
+      neighborhood: "—",
+      city: "—",
+      state: "—",
+      phone: s?.whatsapp || "",
+      email: s?.email || "",
+    };
+    try {
+      const parsed = JSON.parse(s?.notes || "");
+      if (parsed.educational_contract) {
+        const c = parsed.educational_contract;
+        studentData = {
+          fullName: s?.full_name || "Aluno",
+          cpf: c.cpf || "—",
+          rg: c.rg || "—",
+          rgEmitter: c.rg_emitter || "SSP",
+          birthDate: c.birth_date || "—",
+          isMinor: c.is_minor || false,
+          guardianName: c.guardian?.name,
+          guardianCpf: c.guardian?.cpf,
+          guardianKinship: c.guardian?.kinship,
+          guardianPhone: c.guardian?.phone,
+          cep: c.address?.cep || "—",
+          street: c.address?.street || "—",
+          number: c.address?.number || "—",
+          complement: c.address?.complement,
+          neighborhood: c.address?.neighborhood || "—",
+          city: c.address?.city || "—",
+          state: c.address?.state || "—",
+          phone: s?.whatsapp || "",
+          email: s?.email || "",
+        };
+      }
+    } catch { /* fallback */ }
+
+    setViewReceiptProposal({
+      proposal: p,
+      student: studentData,
+    });
+  }
 
   if (!data) return <div className="grid min-h-screen place-items-center text-sm text-muted-foreground">Carregando propostas…</div>;
 
@@ -471,6 +529,37 @@ function ProposalsPage() {
 
                 {/* Action buttons */}
                 <div className="mt-3 flex flex-wrap gap-2 md:justify-end">
+                  {/* WhatsApp 1-Clique */}
+                  {student && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="text-emerald-700 dark:text-emerald-400 border-emerald-300 dark:border-emerald-800 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 font-bold gap-1.5"
+                      title="Compartilhar proposta no WhatsApp com 1 clique"
+                      onClick={() => {
+                        const msg = buildProposalWhatsAppMessage({
+                          studentName: student.full_name,
+                          whatsapp: student.whatsapp,
+                          courseName: p.course_name,
+                          workloadHours: p.course_workload_hours,
+                          modality: p.course_modality,
+                          originalPrice: Number(p.original_price),
+                          finalPrice: Number(p.final_price),
+                          discountName: p.discount_name,
+                          discountAmount: Number(p.discount_amount),
+                          enrollmentPayable: Number(p.enrollment_fee_snapshot ?? 0),
+                          installments: Number(p.installments),
+                          installmentValue: Number(p.installment_value),
+                          proposalId: p.id,
+                          validUntil: p.valid_until ? dateTime.format(new Date(p.valid_until)) : null,
+                        });
+                        openWhatsAppShare(student.whatsapp, msg);
+                      }}
+                    >
+                      <Share2 size={13} className="text-emerald-600" /> WhatsApp
+                    </Button>
+                  )}
+
                   {/* Presentation Mode button */}
                   <Button
                     size="sm"
@@ -484,11 +573,15 @@ function ProposalsPage() {
                     <>
                       <Button
                         size="sm"
-                        variant="outline"
-                        className="text-emerald-700 border-emerald-300 hover:bg-emerald-50 font-bold"
-                        onClick={() => setClosingProposalId(p.id)}
+                        className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold gap-1"
+                        onClick={() => {
+                          setEnrollmentModalProposal({
+                            proposal: p,
+                            student: student || { id: p.student_id, full_name: "Contato", whatsapp: "" },
+                          });
+                        }}
                       >
-                        <CheckCircle2 size={14} className="mr-1" /> Fechar
+                        <CheckCircle2 size={14} /> Efetivar Matrícula
                       </Button>
 
                       <Button
@@ -512,6 +605,17 @@ function ProposalsPage() {
                         +30m
                       </Button>
                     </>
+                  )}
+
+                  {isApproved && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="font-bold text-primary border-primary/30 hover:bg-primary/5 gap-1.5"
+                      onClick={() => openReceiptForProposal(p, student)}
+                    >
+                      <Printer size={13} /> Comprovante
+                    </Button>
                   )}
                 </div>
               </div>
@@ -607,6 +711,29 @@ function ProposalsPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Modal: Formalizar Matrícula & Contrato Educacional */}
+      {enrollmentModalProposal && (
+        <EnrollmentCompletionModal
+          isOpen={true}
+          onClose={() => setEnrollmentModalProposal(null)}
+          proposal={enrollmentModalProposal.proposal}
+          student={enrollmentModalProposal.student}
+          onSuccess={async () => {
+            await refresh();
+          }}
+        />
+      )}
+
+      {/* Modal: Recibo e Comprovante Oficial de Matrícula */}
+      {viewReceiptProposal && (
+        <EnrollmentReceiptModal
+          isOpen={true}
+          onClose={() => setViewReceiptProposal(null)}
+          proposal={viewReceiptProposal.proposal}
+          student={viewReceiptProposal.student}
+        />
       )}
     </AppShell>
   );

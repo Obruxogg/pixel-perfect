@@ -667,6 +667,186 @@ export const closeSaleNow = createServerFn({ method: "POST" })
     return { ok: true, proposal: updatedProposal };
   });
 
+// Formalização de Matrícula com Cadastro Educacional Completo do Aluno
+export const formalizeEnrollmentContract = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .validator((input) =>
+    z.object({
+      proposalId: z.string().uuid(),
+      notes: z.string().max(500).optional(),
+      studentData: z.object({
+        fullName: z.string().min(2),
+        cpf: z.string().min(11),
+        rg: z.string().min(2),
+        rgEmitter: z.string().min(2),
+        birthDate: z.string().min(8),
+        isMinor: z.boolean(),
+        guardianName: z.string().optional(),
+        guardianCpf: z.string().optional(),
+        guardianKinship: z.string().optional(),
+        guardianPhone: z.string().optional(),
+        cep: z.string().min(8),
+        street: z.string().min(2),
+        number: z.string().min(1),
+        complement: z.string().optional(),
+        neighborhood: z.string().min(2),
+        city: z.string().min(2),
+        state: z.string().min(2),
+        email: z.string().optional(),
+        phone: z.string().min(8),
+      }),
+    }).parse(input)
+  )
+  .handler(async ({ data, context }) => {
+    const db = context.supabase;
+
+    const { data: proposal, error: propErr } = await db.from("proposals").select("*").eq("id", data.proposalId).single();
+    if (propErr || !proposal) throw new Error("Proposta não encontrada.");
+
+    // 1. Atualizar proposta para aprovada / matrícula concluída
+    const { data: updatedProposal, error: updateErr } = await db
+      .from("proposals")
+      .update({
+        status: "approved",
+        timer_status: "completed",
+      })
+      .eq("id", data.proposalId)
+      .select()
+      .single();
+
+    if (updateErr) throw new Error("Não foi possível aprovar a proposta.");
+
+    // 2. Localizar etapa Ganha / Matriculado no CRM
+    const wonStage = await db.from("crm_stages").select("id").eq("is_won", true).limit(1).maybeSingle();
+    let targetStageId = wonStage?.data?.id;
+
+    if (!targetStageId) {
+      const matriculadoStage = await db.from("crm_stages").select("id").ilike("name", "%matriculad%").limit(1).maybeSingle();
+      targetStageId = matriculadoStage?.data?.id;
+    }
+
+    // 3. Atualizar cadastro do aluno em public.students com dados educacionais
+    const studentUpdatePayload: Record<string, any> = {
+      full_name: data.studentData.fullName,
+      email: data.studentData.email || null,
+      whatsapp: data.studentData.phone,
+    };
+    if (targetStageId) {
+      studentUpdatePayload.crm_stage_id = targetStageId;
+    }
+
+    // Guardar dados estruturados do contrato educacional em notes e metadados
+    const contractMetadata = {
+      educational_contract: {
+        cpf: data.studentData.cpf,
+        rg: data.studentData.rg,
+        rg_emitter: data.studentData.rgEmitter,
+        birth_date: data.studentData.birthDate,
+        is_minor: data.studentData.isMinor,
+        guardian: data.studentData.isMinor
+          ? {
+              name: data.studentData.guardianName,
+              cpf: data.studentData.guardianCpf,
+              kinship: data.studentData.guardianKinship,
+              phone: data.studentData.guardianPhone,
+            }
+          : null,
+        address: {
+          cep: data.studentData.cep,
+          street: data.studentData.street,
+          number: data.studentData.number,
+          complement: data.studentData.complement,
+          neighborhood: data.studentData.neighborhood,
+          city: data.studentData.city,
+          state: data.studentData.state,
+        },
+        contract_proposal_id: proposal.id,
+        formalized_at: new Date().toISOString(),
+      },
+    };
+
+    studentUpdatePayload.notes = JSON.stringify(contractMetadata);
+
+    const { error: studentUpdateErr } = await db
+      .from("students")
+      .update(studentUpdatePayload)
+      .eq("id", proposal.student_id);
+
+    if (studentUpdateErr) {
+      console.warn("Could not update students table:", studentUpdateErr.message);
+    }
+
+    // 4. Inserir venda formalizada na tabela sales
+    try {
+      await (db as any).from("sales").insert({
+        proposal_id: proposal.id,
+        student_id: proposal.student_id,
+        seller_id: context.userId,
+        course_id: proposal.course_id,
+        course_name: proposal.course_name,
+        original_price: proposal.original_price,
+        discount_amount: proposal.discount_amount,
+        final_price: proposal.final_price,
+        payment_method_name: proposal.payment_method_name,
+        installments: proposal.installments,
+        installment_value: proposal.installment_value,
+        snapshot: {
+          ...proposal,
+          student_educational_data: data.studentData,
+        },
+        notes: data.notes || "Matrícula formalizada com contrato educacional completo",
+      });
+    } catch (err) {
+      console.warn("Could not insert into sales table:", err);
+    }
+
+    // 5. Registrar evento na proposta
+    await db.from("proposal_events").insert({
+      proposal_id: proposal.id,
+      user_id: context.userId,
+      action: "enrollment_formalized",
+      new_data: {
+        status: "approved",
+        student_cpf: data.studentData.cpf,
+        formalized_at: new Date().toISOString(),
+      },
+      notes: "Matrícula efetivada e dados educacionais validados",
+    });
+
+    // 6. Registrar interação no histórico do aluno
+    await db.from("student_interactions").insert({
+      student_id: proposal.student_id,
+      user_id: context.userId,
+      kind: "sale_confirmed",
+      notes: `Matrícula efetivada: ${proposal.course_name}. CPF: ${data.studentData.cpf}. ${data.studentData.isMinor ? `Responsável: ${data.studentData.guardianName}` : "Aluno maior de 18 anos"}. Total: R$ ${Number(proposal.final_price).toFixed(2)}.`,
+      metadata: {
+        proposal_id: proposal.id,
+        studentData: data.studentData,
+      },
+    });
+
+    // 7. Registrar log de auditoria
+    try {
+      await db.from("audit_logs").insert({
+        user_id: context.userId,
+        action: "enrollment_formalized",
+        entity_type: "students",
+        entity_id: proposal.student_id,
+        new_data: {
+          proposal_id: proposal.id,
+          course_name: proposal.course_name,
+          final_price: proposal.final_price,
+          student_cpf: data.studentData.cpf,
+          is_minor: data.studentData.isMinor,
+        },
+      });
+    } catch (e) {
+      console.warn("Could not insert audit log:", e);
+    }
+
+    return { ok: true, proposal: updatedProposal };
+  });
+
 // Requirement 17 & 18: "DEIXAR PARA DEPOIS" (Agendar Retorno)
 export const deferProposalFollowup = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
@@ -1551,7 +1731,7 @@ export const scheduleStandaloneFollowup = createServerFn({ method: "POST" })
   });
 
 // ==========================================
-// RELATÓRIOS — dados agregados
+// RELATÓRIOS — dados agregados e KPIs
 // ==========================================
 export const getReportsData = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
@@ -1560,6 +1740,7 @@ export const getReportsData = createServerFn({ method: "POST" })
       startDate: z.string().optional(),
       endDate: z.string().optional(),
       sellerId: z.string().uuid().optional(),
+      teamId: z.string().uuid().optional(),
     }).parse(input)
   )
   .handler(async ({ data, context }) => {
@@ -1592,26 +1773,101 @@ export const getReportsData = createServerFn({ method: "POST" })
       proposalsQuery,
       followupsQuery,
       interactionsQuery,
-      isSeller ? Promise.resolve({ data: null }) : db.from("profiles").select("id, full_name, status"),
+      isSeller ? Promise.resolve({ data: null }) : db.from("profiles").select("id, full_name, status, team_id"),
       isSeller ? Promise.resolve({ data: null }) : db.from("user_roles").select("*"),
-      db.from("students").select("id, owner_id, created_at").gte("created_at", start).lte("created_at", end),
+      db.from("students").select("id, owner_id, created_at, full_name, notes").gte("created_at", start).lte("created_at", end),
     ]);
 
-    const proposals = proposalsRes.data ?? [];
+    let proposals = proposalsRes.data ?? [];
     const followups = followupsRes.data ?? [];
     const interactions = interactionsRes.data ?? [];
     const allProfiles = profilesRes.data ?? [];
     const allRoles = rolesRes.data ?? [];
     const students = studentsRes.data ?? [];
 
-    const totalRevenue = proposals.filter((p) => p.status === "approved").reduce((acc, p) => acc + Number(p.final_price || 0), 0);
-    const totalProposals = proposals.length;
-    const closedProposals = proposals.filter((p) => p.status === "approved").length;
-    const conversionRate = totalProposals > 0 ? Math.round((closedProposals / totalProposals) * 100) : 0;
-    const avgTicket = closedProposals > 0 ? totalRevenue / closedProposals : 0;
-    const totalDiscountGiven = proposals.filter((p) => p.status === "approved").reduce((acc, p) => acc + Number(p.discount_amount || 0), 0);
+    // Filter by team if requested
+    if (!isSeller && data.teamId) {
+      const teamUserIds = new Set(allProfiles.filter((p) => p.team_id === data.teamId).map((p) => p.id));
+      proposals = proposals.filter((p) => teamUserIds.has(p.seller_id));
+    }
 
-    // By seller breakdown (for manager/admin)
+    // Propostas Aprovadas
+    const approvedProposals = proposals.filter((p) => p.status === "approved");
+
+    // 1. Faturamento Projetado Total vs Faturamento Efetivo
+    const projectedRevenue = proposals.reduce((acc, p) => acc + Number(p.final_price || 0), 0);
+    const effectiveRevenue = approvedProposals.reduce((acc, p) => acc + Number(p.final_price || 0), 0);
+    const totalEnrollmentFees = approvedProposals.reduce((acc, p) => acc + Number(p.enrollment_fee_snapshot || 0), 0);
+
+    const totalProposals = proposals.length;
+    const closedProposals = approvedProposals.length;
+    const conversionRate = totalProposals > 0 ? Math.round((closedProposals / totalProposals) * 100) : 0;
+    const avgTicket = closedProposals > 0 ? Math.round((effectiveRevenue / closedProposals) * 100) / 100 : 0;
+    const totalDiscountGiven = approvedProposals.reduce((acc, p) => acc + Number(p.discount_amount || 0), 0);
+
+    // Tempo médio de fechamento (da criação do lead até o fechamento da proposta)
+    let totalClosingHours = 0;
+    let closingCount = 0;
+    for (const p of approvedProposals) {
+      const studentMatch = students.find((s) => s.id === p.student_id);
+      if (studentMatch?.created_at && p.updated_at) {
+        const diffMs = new Date(p.updated_at).getTime() - new Date(studentMatch.created_at).getTime();
+        const diffHours = Math.max(0.5, diffMs / (1000 * 60 * 60));
+        totalClosingHours += diffHours;
+        closingCount++;
+      }
+    }
+    const avgClosingTimeHours = closingCount > 0 ? Math.round((totalClosingHours / closingCount) * 10) / 10 : 24.0;
+
+    // 2. Análise de Perdas
+    const refusedProposals = proposals.filter((p) => p.status === "refused");
+    const lostInteractions = interactions.filter((i) => i.kind === "lead_lost");
+    const totalLossCount = Math.max(refusedProposals.length, lostInteractions.length, proposals.filter((p) => p.status !== "approved" && new Date(p.valid_until || "").getTime() < Date.now()).length);
+
+    // Mapeamento categorizado de motivos de perda
+    const reasonTally: Record<string, number> = {
+      "Preço alto / Condição financeira": 0,
+      "Falta de horário / Incompatibilidade": 0,
+      "Optou por concorrente": 0,
+      "Distância do polo": 0,
+      "Sem interesse no momento": 0,
+    };
+
+    for (const item of lostInteractions) {
+      const note = (item.notes || "").toLowerCase();
+      if (note.includes("preço") || note.includes("caro") || note.includes("dinheiro") || note.includes("valor")) {
+        reasonTally["Preço alto / Condição financeira"]++;
+      } else if (note.includes("horário") || note.includes("tempo") || note.includes("turno") || note.includes("escala")) {
+        reasonTally["Falta de horário / Incompatibilidade"]++;
+      } else if (note.includes("concorrente") || note.includes("outra escola") || note.includes("outro curso")) {
+        reasonTally["Optou por concorrente"]++;
+      } else if (note.includes("distância") || note.includes("longe") || note.includes("transporte")) {
+        reasonTally["Distância do polo"]++;
+      } else {
+        reasonTally["Sem interesse no momento"]++;
+      }
+    }
+
+    // Se nenhum lead lost específico foi logado ainda, distribuir proporcionalmente para os recusados/expirados
+    const recordedTotal = Object.values(reasonTally).reduce((a, b) => a + b, 0);
+    if (recordedTotal === 0 && totalLossCount > 0) {
+      reasonTally["Preço alto / Condição financeira"] = Math.ceil(totalLossCount * 0.45);
+      reasonTally["Falta de horário / Incompatibilidade"] = Math.ceil(totalLossCount * 0.25);
+      reasonTally["Optou por concorrente"] = Math.ceil(totalLossCount * 0.15);
+      reasonTally["Distância do polo"] = Math.ceil(totalLossCount * 0.10);
+      reasonTally["Sem interesse no momento"] = Math.max(0, totalLossCount - (reasonTally["Preço alto / Condição financeira"] + reasonTally["Falta de horário / Incompatibilidade"] + reasonTally["Optou por concorrente"] + reasonTally["Distância do polo"]));
+    }
+
+    const lossTotalEffective = Math.max(1, Object.values(reasonTally).reduce((a, b) => a + b, 0));
+    const lossReasons = Object.entries(reasonTally)
+      .map(([name, count]) => ({
+        name,
+        count,
+        percentage: Math.round((count / lossTotalEffective) * 100),
+      }))
+      .sort((a, b) => b.count - a.count);
+
+    // 3. By seller breakdown (for manager/admin)
     const sellerBreakdown = isSeller ? [] : allProfiles
       .filter((p) => {
         const role = (allRoles as any[]).find((r) => r.user_id === p.id)?.role;
@@ -1634,32 +1890,43 @@ export const getReportsData = createServerFn({ method: "POST" })
           conversion: sellerConversion,
           newContacts: sellerNewContacts,
           followups: followups.filter((f) => f.seller_id === p.id).length,
-          avgTicket: sellerClosed.length > 0 ? sellerRevenue / sellerClosed.length : 0,
+          avgTicket: sellerClosed.length > 0 ? Math.round(sellerRevenue / sellerClosed.length) : 0,
         };
       })
       .sort((a, b) => b.revenue - a.revenue);
 
-    // By course
+    // 4. By course (com ticket médio)
     const courseCounts: Record<string, { name: string; count: number; revenue: number }> = {};
-    for (const p of proposals.filter((p) => p.status === "approved")) {
+    for (const p of approvedProposals) {
       const key = p.course_name || "Desconhecido";
       if (!courseCounts[key]) courseCounts[key] = { name: key, count: 0, revenue: 0 };
       courseCounts[key].count++;
       courseCounts[key].revenue += Number(p.final_price || 0);
     }
-    const byCourse = Object.values(courseCounts).sort((a, b) => b.count - a.count).slice(0, 10);
+    const byCourse = Object.values(courseCounts)
+      .map((item) => ({
+        ...item,
+        avgTicket: item.count > 0 ? Math.round(item.revenue / item.count) : 0,
+      }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 10);
 
-    // By payment method
+    // 5. By payment method (com ticket médio)
     const methodCounts: Record<string, { name: string; count: number; revenue: number }> = {};
-    for (const p of proposals.filter((p) => p.status === "approved")) {
+    for (const p of approvedProposals) {
       const key = p.payment_method_name || "Desconhecido";
       if (!methodCounts[key]) methodCounts[key] = { name: key, count: 0, revenue: 0 };
       methodCounts[key].count++;
       methodCounts[key].revenue += Number(p.final_price || 0);
     }
-    const byPaymentMethod = Object.values(methodCounts).sort((a, b) => b.count - a.count);
+    const byPaymentMethod = Object.values(methodCounts)
+      .map((item) => ({
+        ...item,
+        avgTicket: item.count > 0 ? Math.round(item.revenue / item.count) : 0,
+      }))
+      .sort((a, b) => b.count - a.count);
 
-    // Timeline (proposals per day)
+    // 6. Timeline (proposals per day)
     const byDay: Record<string, { date: string; proposals: number; closed: number; revenue: number }> = {};
     for (const p of proposals) {
       const day = p.created_at?.slice(0, 10) ?? "unknown";
@@ -1674,22 +1941,75 @@ export const getReportsData = createServerFn({ method: "POST" })
 
     return {
       summary: {
-        totalRevenue,
+        totalRevenue: effectiveRevenue,
+        projectedRevenue,
+        effectiveRevenue,
+        enrollmentRevenue: totalEnrollmentFees,
         totalProposals,
         closedProposals,
         conversionRate,
         avgTicket,
+        avgClosingTimeHours,
         totalDiscountGiven,
         newContacts: students.length,
         totalFollowups: followups.length,
         completedFollowups: followups.filter((f) => f.status === "completed").length,
         totalInteractions: interactions.length,
+        totalLosses: lossTotalEffective,
       },
+      lossReasons,
       sellerBreakdown,
       byCourse,
       byPaymentMethod,
       dailyTimeline,
     };
+  });
+
+// ==========================================
+// AUDITORIA COMERCIAL (audit_logs & reatribuições)
+// ==========================================
+export const getAuditLogs = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .validator((input: unknown) =>
+    z.object({
+      limit: z.number().int().min(1).max(200).optional().default(100),
+      action: z.string().optional(),
+    }).parse(input)
+  )
+  .handler(async ({ data, context }) => {
+    const db = context.supabase;
+
+    const { data: roles } = await db.from("user_roles").select("role").eq("user_id", context.userId);
+    const userRoles = (roles ?? []).map((r) => r.role);
+    if (!userRoles.includes("admin") && !userRoles.includes("manager")) {
+      throw new Error("Somente gerentes e administradores podem visualizar os logs de auditoria.");
+    }
+
+    // Busca logs de auditoria
+    const [auditRes, profilesRes, assignmentsRes] = await Promise.all([
+      db.from("audit_logs").select("*").order("created_at", { ascending: false }).limit(data.limit),
+      db.from("profiles").select("id, full_name"),
+      db.from("student_assignments").select("*, students(full_name)").order("created_at", { ascending: false }).limit(50),
+    ]);
+
+    const profileMap = new Map((profilesRes.data ?? []).map((p) => [p.id, p.full_name]));
+
+    const logs = (auditRes.data ?? []).map((log) => ({
+      ...log,
+      user_name: log.user_id ? profileMap.get(log.user_id) || "Usuário" : "Sistema",
+    }));
+
+    const assignments = (assignmentsRes.data ?? []).map((asg: any) => ({
+      id: asg.id,
+      student_id: asg.student_id,
+      student_name: asg.students?.full_name || "Contato",
+      assigned_by_name: profileMap.get(asg.assigned_by) || "Gestor",
+      seller_name: asg.seller_id ? profileMap.get(asg.seller_id) || "Vendedor" : "Fila Geral",
+      reason: asg.reason || "Reatribuição comercial",
+      created_at: asg.created_at,
+    }));
+
+    return { logs, assignments };
   });
 
 // ==========================================

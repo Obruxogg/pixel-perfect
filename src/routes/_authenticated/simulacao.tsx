@@ -15,11 +15,15 @@ import {
   ChevronDown,
   ChevronUp,
   Settings2,
+  Share2,
+  MessageSquareQuote,
 } from "lucide-react";
 import { useServerFn } from "@tanstack/react-start";
 import { calculateCommercialPrice } from "@/lib/commercial-calculation";
 import { eligibleCommercialConditions, formatInstallmentSummary } from "@/lib/commercial-options";
 import { ProposalPriceBreakdown } from "@/components/proposal-price-breakdown";
+import { EnrollmentCompletionModal } from "@/components/enrollment-completion-modal";
+import { buildProposalWhatsAppMessage, openWhatsAppShare } from "@/lib/whatsapp";
 import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
 import { brl, dateTime, useRefreshWorkspace, useWorkspace } from "@/lib/use-workspace";
@@ -79,6 +83,7 @@ function SimulationPage() {
   const [presentationMode, setPresentationMode] = useState(false);
   const [showCloseModal, setShowCloseModal] = useState(false);
   const [showDeferModal, setShowDeferModal] = useState(false);
+  const [enrollmentModalData, setEnrollmentModalData] = useState<{ proposal: any; student: any } | null>(null);
   const [deferDate, setDeferDate] = useState("");
   const [deferTime, setDeferTime] = useState("10:00");
   const [deferNotes, setDeferNotes] = useState("");
@@ -207,23 +212,45 @@ function SimulationPage() {
     return res;
   }
 
-  async function handleConfirmCloseSale() {
+  async function handleStartEnrollment() {
     setBusy(true);
     setError("");
     try {
       const res = await saveProposalInternal();
-      if (!res.proposal) throw new Error("Erro ao gerar proposta.");
-      await closeSale({ data: { proposalId: res.proposal.id, notes: "Venda confirmada no atendimento em tempo real" } });
-      await refresh();
-      setSuccessMessage("Venda confirmada com sucesso! Aluno matriculado no CRM.");
+      if (!res.proposal) throw new Error("Erro ao salvar proposta para matrícula.");
+      setEnrollmentModalData({
+        proposal: {
+          id: res.proposal.id,
+          course_name: course?.name || "Curso",
+          course_workload_hours: course?.workload_hours,
+          course_modality: course?.modality,
+          payment_method_name: selectedMethod?.name || "Boleto",
+          installments: calc.count,
+          installment_value: calc.portion,
+          enrollment_fee_snapshot: calc.enrollmentPayable,
+          original_price: calc.coursePrice,
+          discount_amount: calc.totalCourseDiscounts,
+          final_price: calc.totalContract,
+          seller_name: data?.profile?.full_name,
+        },
+        student: {
+          id: res.student?.id || studentId,
+          full_name: studentName,
+          whatsapp,
+          email,
+        },
+      });
       setShowCloseModal(false);
       setPresentationMode(false);
-      setTimeout(() => navigate({ to: "/crm" }), 1200);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Erro ao confirmar venda.");
+      setError(err instanceof Error ? err.message : "Erro ao preparar matrícula.");
     } finally {
       setBusy(false);
     }
+  }
+
+  async function handleConfirmCloseSale() {
+    await handleStartEnrollment();
   }
 
   async function handleSaveDeferFollowup() {
@@ -327,19 +354,36 @@ function SimulationPage() {
                 </div>
               </div>
 
-              {/* Curso parcelado */}
-              <div className="flex items-center justify-between p-4 rounded-xl bg-muted/40 border border-border">
-                <div>
-                  <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground block">
-                    Curso com condição especial
-                  </span>
-                  <span className="text-xs text-muted-foreground">
-                    {selectedMethod?.name || "Boleto bancário"}
-                  </span>
+              {/* Curso parcelado com Ancoragem Visual De/Por e Badge */}
+              <div className="p-4 sm:p-5 rounded-xl bg-muted/40 border border-border">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground block">
+                      Curso com condição especial
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      {selectedMethod?.name || "Boleto bancário"}
+                    </span>
+                  </div>
+                  <div className="text-right">
+                    {calc.hasPortionDiscount && (
+                      <span className="text-xs text-muted-foreground line-through block tabular-nums">
+                        De {brl.format(calc.originalPortion)}
+                      </span>
+                    )}
+                    <strong className="text-xl md:text-3xl font-black text-foreground tabular-nums">
+                      {calc.hasPortionDiscount ? `por ${calc.count}x de ${brl.format(calc.portion)}/mês` : formatInstallmentSummary(calc.installmentBalance, calc.count, calc.portion)}
+                    </strong>
+                  </div>
                 </div>
-                <strong className="text-xl md:text-2xl font-extrabold text-foreground tabular-nums">
-                  {formatInstallmentSummary(calc.installmentBalance, calc.count, calc.portion)}
-                </strong>
+
+                {calc.hasPortionDiscount && (
+                  <div className="mt-2.5 pt-2 border-t border-border/60 flex items-center justify-end">
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-600 text-white px-3 py-1 text-xs font-bold shadow-xs">
+                      <Sparkles size={13} /> Economia de {brl.format(calc.portionSavings)} por parcela
+                    </span>
+                  </div>
+                )}
               </div>
 
               {/* Material Didático */}
@@ -392,9 +436,9 @@ function SimulationPage() {
             <Button
               size="lg"
               className="w-full sm:w-auto h-14 px-8 text-base font-extrabold bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg gap-2"
-              onClick={() => setShowCloseModal(true)}
+              onClick={handleStartEnrollment}
             >
-              <CheckCircle2 size={20} /> FECHAR AGORA
+              <CheckCircle2 size={20} /> EFETIVAR MATRÍCULA
             </Button>
 
             <Button
@@ -872,6 +916,9 @@ function SimulationPage() {
               installments={calc.count}
               installmentValue={calc.portion}
               lastInstallmentValue={calc.lastPortion}
+              originalPortion={calc.originalPortion}
+              portionSavings={calc.portionSavings}
+              hasPortionDiscount={calc.hasPortionDiscount}
               paymentMethodName={selectedMethod?.name}
               enrollmentFee={calc.enrollmentFee}
               enrollmentPromotionalFee={calc.enrollmentPromotionalFee}
@@ -885,6 +932,21 @@ function SimulationPage() {
               final={calc.totalContract}
               discounts={calc.breakdown}
             />
+
+            {/* Script de Fechamento Comercial (Apoio ao Vendedor) */}
+            {conditionId && selectedCondition && course && (
+              <div className="rounded-xl border border-primary/20 bg-primary/5 p-4 space-y-2 text-left">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold uppercase tracking-wider text-primary flex items-center gap-1.5">
+                    <Sparkles size={14} /> Script de Fechamento Comercial
+                  </span>
+                  <span className="text-[10px] text-muted-foreground font-semibold">Pronto para fala</span>
+                </div>
+                <div className="rounded-lg bg-background/90 p-3 border border-border/80 text-xs text-foreground leading-relaxed italic">
+                  "{studentName ? studentName.split(" ")[0] : "Aluno"}, o investimento padrão no curso <b>{course.name}</b> é de <b>{brl.format(calc.coursePrice)}</b>. Mas na condição especial <b>{selectedCondition.name}</b> que liberamos hoje, você garante a formação em <b>{calc.count}x de {brl.format(calc.portion)}</b>, economizando <b>{brl.format(calc.portionSavings)} por mês</b>. A matrícula é de apenas <b>{brl.format(calc.enrollmentPayable)}</b> e todo o seu material didático já está 100% incluso. Vamos formalizar sua matrícula agora?"
+                </div>
+              </div>
+            )}
 
             {conditionId && (
               <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground bg-background/80 rounded-md py-1.5 px-3 border border-border">
@@ -904,14 +966,41 @@ function SimulationPage() {
               <Eye size={17} /> MOSTRAR PROPOSTA AO ALUNO
             </Button>
 
+            {/* Compartilhamento WhatsApp em 1 Clique */}
+            <Button
+              variant="outline"
+              className="w-full h-10 text-xs font-bold text-emerald-700 dark:text-emerald-400 border-emerald-300 dark:border-emerald-800 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 gap-1.5"
+              disabled={!canPresent || busy}
+              onClick={() => {
+                const msg = buildProposalWhatsAppMessage({
+                  studentName,
+                  whatsapp,
+                  courseName: course?.name || "Curso",
+                  workloadHours: course?.workload_hours,
+                  modality: course?.modality,
+                  originalPrice: calc.coursePrice,
+                  finalPrice: calc.totalContract,
+                  discountName: selectedCondition?.name,
+                  discountAmount: calc.totalCourseDiscounts,
+                  enrollmentPayable: calc.enrollmentPayable,
+                  installments: calc.count,
+                  installmentValue: calc.portion,
+                  validUntil: dateTime.format(validUntilDate),
+                });
+                openWhatsAppShare(whatsapp, msg);
+              }}
+            >
+              <Share2 size={14} className="text-emerald-600" /> Enviar Proposta via WhatsApp
+            </Button>
+
             <div className="grid grid-cols-2 gap-2">
               <Button
                 variant="outline"
                 className="font-bold text-emerald-700 hover:text-emerald-800 hover:bg-emerald-50 border-emerald-300"
                 disabled={!canPresent || busy}
-                onClick={() => setShowCloseModal(true)}
+                onClick={handleStartEnrollment}
               >
-                <CheckCircle2 size={16} /> Fechar Agora
+                <CheckCircle2 size={16} /> Efetivar Matrícula
               </Button>
               <Button
                 variant="outline"
@@ -1025,6 +1114,20 @@ function SimulationPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Modal de Conclusão da Matrícula com Cadastro Educacional Completo */}
+      {enrollmentModalData && (
+        <EnrollmentCompletionModal
+          isOpen={true}
+          onClose={() => setEnrollmentModalData(null)}
+          proposal={enrollmentModalData.proposal}
+          student={enrollmentModalData.student}
+          onSuccess={async () => {
+            await refresh();
+            navigate({ to: "/crm" });
+          }}
+        />
       )}
     </AppShell>
   );

@@ -107,6 +107,11 @@ export function calculateCommercialPrice(input: CalculateCommercialPriceInput) {
   const installmentsList = Array.from({ length: count }, (_, i) => (i === count - 1 ? lastPortion : portion));
   const sumInstallments = money(portion * (count - 1) + lastPortion);
 
+  // Ancoragem da parcela: parcela de tabela original vs parcela com desconto
+  const originalPortion = count > 0 ? money(Math.floor((coursePrice * 100) / count) / 100) : coursePrice;
+  const portionSavings = money(Math.max(0, originalPortion - portion));
+  const hasPortionDiscount = portionSavings > 0;
+
   // 8. Matrícula — cobrança independente, NUNCA integra as parcelas do curso
   const normalFee = money(Math.max(0, input.enrollmentFee ?? 0));
   const promoFee = input.enrollmentPromotionalFee != null ? money(Math.max(0, input.enrollmentPromotionalFee)) : normalFee;
@@ -143,6 +148,11 @@ export function calculateCommercialPrice(input: CalculateCommercialPriceInput) {
     lastPortion,
     installmentsList,
     sumInstallments,
+
+    // Ancoragem da Parcela (De / Por)
+    originalPortion,
+    portionSavings,
+    hasPortionDiscount,
 
     // Matrícula (SEPARADA)
     enrollmentFee: normalFee,
