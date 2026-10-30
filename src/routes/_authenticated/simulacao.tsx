@@ -21,7 +21,9 @@ import {
 import { useServerFn } from "@tanstack/react-start";
 import { calculateCommercialPrice } from "@/lib/commercial-calculation";
 import { eligibleCommercialConditions, formatInstallmentSummary } from "@/lib/commercial-options";
+import { findBestAVistaOption, calculateComparativeAnchor } from "@/lib/avista-comparison";
 import { ProposalPriceBreakdown } from "@/components/proposal-price-breakdown";
+import { ComparativeAVistaAnchor } from "@/components/comparative-avista-anchor";
 import { EnrollmentCompletionModal } from "@/components/enrollment-completion-modal";
 import { buildProposalWhatsAppMessage, openWhatsAppShare } from "@/lib/whatsapp";
 import { AppShell } from "@/components/app-shell";
@@ -183,6 +185,62 @@ function SimulationPage() {
     additional: adicionalDiscount,
     installments: selectedInstallment?.installments ?? 1,
   }), [configuredPrice, course, courseNormalFee, coursePromoFee, enrollmentCondition, globalPromoActive, discountRule, adicionalDiscount, selectedInstallment]);
+
+  // Âncora comparativa de valor à vista (Pix/Dinheiro)
+  const bestAVistaOption = useMemo(() => {
+    if (!courseId) return null;
+    return findBestAVistaOption({
+      courseId,
+      courseBasePrice: Number(configuredPrice?.price ?? course?.base_price ?? 0),
+      roles: (data?.roles ?? []).map((r) => r.role),
+      conditions: data?.conditions ?? [],
+      methods: data?.methods ?? [],
+      installments: data?.installments ?? [],
+      prices: data?.prices ?? [],
+      discounts: data?.discounts ?? [],
+      enrollmentFee: courseNormalFee,
+      enrollmentPromotionalFee: coursePromoFee,
+      enrollmentCondition,
+      promotionalActive: globalPromoActive,
+      materialDiscount: Number(course?.material_discount ?? 0),
+      materialBilling: ((course as any)?.material_billing as any) ?? "included",
+      fallbackCourseNet: calc.courseNet,
+    });
+  }, [
+    courseId,
+    configuredPrice,
+    course,
+    data?.roles,
+    data?.conditions,
+    data?.methods,
+    data?.installments,
+    data?.prices,
+    data?.discounts,
+    courseNormalFee,
+    coursePromoFee,
+    enrollmentCondition,
+    globalPromoActive,
+    calc.courseNet,
+  ]);
+
+  const comparativeAnchor = useMemo(() => {
+    if (!bestAVistaOption) return null;
+    return calculateComparativeAnchor({
+      installments: calc.count,
+      installmentValue: calc.portion,
+      enrollmentPayable: calc.enrollmentPayable,
+      aVistaOption: bestAVistaOption,
+    });
+  }, [calc.count, calc.portion, calc.enrollmentPayable, bestAVistaOption]);
+
+  function handleApplyAVista() {
+    if (!bestAVistaOption?.conditionId) return;
+    const cond = data?.conditions?.find((c) => c.id === bestAVistaOption.conditionId);
+    if (!cond) return;
+    setPaymentMethodId(cond.payment_method_id);
+    setInstallmentId(cond.installment_option_id ?? "cash");
+    setConditionId(cond.id);
+  }
 
   const validUntilDate = useMemo(() => new Date(Date.now() + validityMinutes * 60000), [validityMinutes]);
 
@@ -385,6 +443,12 @@ function SimulationPage() {
                   </div>
                 )}
               </div>
+
+              {/* Âncora Comparativa de Valor à Vista para o Aluno */}
+              <ComparativeAVistaAnchor
+                anchor={comparativeAnchor}
+                isPresentation={true}
+              />
 
               {/* Material Didático */}
               <div className="flex items-center justify-between px-4 py-2 text-xs">
@@ -933,6 +997,12 @@ function SimulationPage() {
               discounts={calc.breakdown}
             />
 
+            {/* Âncora Comparativa de Valor à Vista */}
+            <ComparativeAVistaAnchor
+              anchor={comparativeAnchor}
+              onApplyAVista={handleApplyAVista}
+            />
+
             {/* Script de Fechamento Comercial (Apoio ao Vendedor) */}
             {conditionId && selectedCondition && course && (
               <div className="rounded-xl border border-primary/20 bg-primary/5 p-4 space-y-2 text-left">
@@ -943,7 +1013,7 @@ function SimulationPage() {
                   <span className="text-[10px] text-muted-foreground font-semibold">Pronto para fala</span>
                 </div>
                 <div className="rounded-lg bg-background/90 p-3 border border-border/80 text-xs text-foreground leading-relaxed italic">
-                  "{studentName ? studentName.split(" ")[0] : "Aluno"}, o investimento padrão no curso <b>{course.name}</b> é de <b>{brl.format(calc.coursePrice)}</b>. Mas na condição especial <b>{selectedCondition.name}</b> que liberamos hoje, você garante a formação em <b>{calc.count}x de {brl.format(calc.portion)}</b>, economizando <b>{brl.format(calc.portionSavings)} por mês</b>. A matrícula é de apenas <b>{brl.format(calc.enrollmentPayable)}</b> e todo o seu material didático já está 100% incluso. Vamos formalizar sua matrícula agora?"
+                  "{studentName ? studentName.split(" ")[0] : "Aluno"}, o investimento padrão no curso <b>{course.name}</b> é de <b>{brl.format(calc.coursePrice)}</b>. Mas na condição especial <b>{selectedCondition.name}</b> que liberamos hoje, você garante a formação em <b>{calc.count}x de {brl.format(calc.portion)}</b>, economizando <b>{brl.format(calc.portionSavings)} por mês</b>. A matrícula é de apenas <b>{brl.format(calc.enrollmentPayable)}</b> e todo o seu material didático já está 100% incluso.{comparativeAnchor?.showAnchor ? ` E se você preferir quitar à vista no <b>${comparativeAnchor.paymentMethodName}</b>, o investimento total com matrícula cai para apenas <b>${brl.format(comparativeAnchor.totalAVista)}</b>, garantindo uma economia imediata de <b>${brl.format(comparativeAnchor.economy)}</b>!` : ""} Vamos formalizar sua matrícula agora?"
                 </div>
               </div>
             )}
@@ -986,6 +1056,9 @@ function SimulationPage() {
                   installments: calc.count,
                   installmentValue: calc.portion,
                   validUntil: dateTime.format(validUntilDate),
+                  aVistaTotal: comparativeAnchor?.showAnchor ? comparativeAnchor.totalAVista : undefined,
+                  aVistaSavings: comparativeAnchor?.showAnchor ? comparativeAnchor.economy : undefined,
+                  aVistaMethodName: comparativeAnchor?.showAnchor ? comparativeAnchor.paymentMethodName : undefined,
                 });
                 openWhatsAppShare(whatsapp, msg);
               }}

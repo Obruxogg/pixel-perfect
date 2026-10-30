@@ -16,6 +16,9 @@ export interface ProposalWhatsAppParams {
   proposalId?: string;
   validUntil?: string | null;
   origin?: string;
+  aVistaTotal?: number | null;
+  aVistaSavings?: number | null;
+  aVistaMethodName?: string | null;
 }
 
 /**
@@ -44,6 +47,9 @@ export function buildProposalWhatsAppMessage(params: ProposalWhatsAppParams): st
       ? `• *Matrícula:* ${brl.format(params.enrollmentPayable)} (cobrada à parte)`
       : null,
     `• *Plano de Parcelamento:* *${params.installments}x de ${brl.format(params.installmentValue)}/mês*`,
+    params.aVistaSavings && params.aVistaSavings > 0 && params.aVistaTotal != null
+      ? `• 💡 *Opção à Vista (${params.aVistaMethodName || "Pix / Dinheiro"}):* ${brl.format(params.aVistaTotal)} (Economia imediata de *${brl.format(params.aVistaSavings)}*)`
+      : null,
     ``,
     params.validUntil ? `⏳ *Validade da Oferta:* até ${params.validUntil}` : null,
     proposalUrl ? `🔗 *Visualizar Proposta Formal:* ${proposalUrl}` : null,

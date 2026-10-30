@@ -168,24 +168,34 @@ function CrmPage() {
   // Open WhatsApp share for a proposal card
   function handleWhatsAppShare(student: (typeof data.students)[number], proposal: (typeof data.proposals)[number] | undefined) {
     if (!proposal) return;
+    const count = Number((proposal as any).installments ?? (proposal as any).installment_count ?? 1);
+    const subtotal = Number((proposal as any).subtotal_snapshot ?? proposal.original_price ?? 0);
+    const enrollment = Number((proposal as any).enrollment_fee_snapshot ?? (proposal as any).enrollment_payable ?? 0);
+    const finalPrice = Number(proposal.final_price ?? 0);
+    const aVistaTotal = subtotal + enrollment;
+    const aVistaSavings = Math.max(0, finalPrice - aVistaTotal);
+
     const message = buildProposalWhatsAppMessage({
       studentName: student.full_name,
       whatsapp: student.whatsapp,
       courseName: proposal.course_name ?? "Curso",
       originalPrice: Number(proposal.original_price ?? 0),
-      finalPrice: Number(proposal.final_price ?? 0),
+      finalPrice,
       discountName: (proposal as any).discount_name ?? null,
       discountAmount:
-        Number(proposal.original_price ?? 0) - Number(proposal.final_price ?? 0) > 0
-          ? Number(proposal.original_price ?? 0) - Number(proposal.final_price ?? 0)
+        Number(proposal.original_price ?? 0) - finalPrice > 0
+          ? Number(proposal.original_price ?? 0) - finalPrice
           : null,
-      enrollmentPayable: Number((proposal as any).enrollment_payable ?? 0),
-      installments: Number((proposal as any).installment_count ?? 1),
+      enrollmentPayable: enrollment,
+      installments: count,
       installmentValue: Number((proposal as any).installment_value ?? proposal.final_price ?? 0),
       proposalId: proposal.id,
       validUntil: (proposal as any).valid_until
         ? new Date((proposal as any).valid_until).toLocaleDateString("pt-BR")
         : null,
+      aVistaTotal: count > 1 && aVistaSavings > 0 ? aVistaTotal : undefined,
+      aVistaSavings: count > 1 && aVistaSavings > 0 ? aVistaSavings : undefined,
+      aVistaMethodName: "Pix / Dinheiro",
     });
     openWhatsAppShare(student.whatsapp, message);
   }

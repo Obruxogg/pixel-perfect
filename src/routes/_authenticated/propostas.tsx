@@ -20,6 +20,7 @@ import {
   Printer,
 } from "lucide-react";
 import { ProposalPriceBreakdown } from "@/components/proposal-price-breakdown";
+import { ComparativeAVistaAnchor } from "@/components/comparative-avista-anchor";
 import { EnrollmentCompletionModal } from "@/components/enrollment-completion-modal";
 import { EnrollmentReceiptModal, StudentEnrollmentDetails } from "@/components/enrollment-receipt-modal";
 import { buildProposalWhatsAppMessage, openWhatsAppShare } from "@/lib/whatsapp";
@@ -497,24 +498,56 @@ function ProposalsPage() {
                   )}
                 </div>
 
-                <div className="mt-4 max-w-xl">
-                  <ProposalPriceBreakdown
-                    courseName={p.course_name}
-                    coursePrice={p.course_price_snapshot ?? Number(p.original_price)}
-                    courseNet={p.subtotal_snapshot}
-                    installmentBalance={p.subtotal_snapshot}
-                    installments={Number(p.installments)}
-                    installmentValue={Number(p.installment_value)}
-                    paymentMethodName={p.payment_method_name}
-                    enrollmentFee={p.enrollment_fee_snapshot}
-                    enrollmentPayable={p.enrollment_fee_snapshot}
-                    materialDiscount={p.material_discount_snapshot}
-                    subtotal={p.subtotal_snapshot}
-                    original={Number(p.original_price)}
-                    final={Number(p.final_price)}
-                    discounts={savedDiscounts(p)}
-                  />
-                </div>
+                {(() => {
+                  const pInstallments = Number(p.installments) || 1;
+                  const pPortion = Number(p.installment_value) || 0;
+                  const pEnrollment = Number(p.enrollment_fee_snapshot ?? 0);
+                  const pSubtotal = p.subtotal_snapshot != null ? Number(p.subtotal_snapshot) : Number(p.original_price);
+                  const pTotalParcelado = Number(p.final_price) || (pPortion * pInstallments + pEnrollment);
+                  const pTotalAVista = pSubtotal + pEnrollment;
+                  const pEconomy = Math.max(0, pTotalParcelado - pTotalAVista);
+
+                  const proposalAnchor = pInstallments > 1 && pEconomy > 0 ? {
+                    showAnchor: true,
+                    installments: pInstallments,
+                    installmentValue: pPortion,
+                    totalParcelado: pTotalParcelado,
+                    totalAVista: pTotalAVista,
+                    aVistaCourseNet: pSubtotal,
+                    enrollmentPayable: pEnrollment,
+                    economy: pEconomy,
+                    economyPercentage: Math.round((pEconomy / pTotalParcelado) * 100),
+                    paymentMethodName: "À Vista (Pix / Dinheiro)",
+                    isSpecificCondition: false,
+                  } : null;
+
+                  return (
+                    <div className="mt-4 max-w-xl">
+                      <ProposalPriceBreakdown
+                        courseName={p.course_name}
+                        coursePrice={p.course_price_snapshot ?? Number(p.original_price)}
+                        courseNet={p.subtotal_snapshot}
+                        installmentBalance={p.subtotal_snapshot}
+                        installments={Number(p.installments)}
+                        installmentValue={Number(p.installment_value)}
+                        paymentMethodName={p.payment_method_name}
+                        enrollmentFee={p.enrollment_fee_snapshot}
+                        enrollmentPayable={p.enrollment_fee_snapshot}
+                        materialDiscount={p.material_discount_snapshot}
+                        subtotal={p.subtotal_snapshot}
+                        original={Number(p.original_price)}
+                        final={Number(p.final_price)}
+                        discounts={savedDiscounts(p)}
+                      />
+
+                      {proposalAnchor && (
+                        <div className="mt-3">
+                          <ComparativeAVistaAnchor anchor={proposalAnchor} />
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
 
               {/* Right: Timer & Actions */}
@@ -552,6 +585,13 @@ function ProposalsPage() {
                           installmentValue: Number(p.installment_value),
                           proposalId: p.id,
                           validUntil: p.valid_until ? dateTime.format(new Date(p.valid_until)) : null,
+                          aVistaTotal: Number(p.installments) > 1 && (p.subtotal_snapshot != null || p.original_price != null)
+                            ? (Number(p.subtotal_snapshot ?? p.original_price) + Number(p.enrollment_fee_snapshot ?? 0))
+                            : undefined,
+                          aVistaSavings: Number(p.installments) > 1 && Number(p.final_price) > (Number(p.subtotal_snapshot ?? p.original_price) + Number(p.enrollment_fee_snapshot ?? 0))
+                            ? (Number(p.final_price) - (Number(p.subtotal_snapshot ?? p.original_price) + Number(p.enrollment_fee_snapshot ?? 0)))
+                            : undefined,
+                          aVistaMethodName: "Pix / Dinheiro",
                         });
                         openWhatsAppShare(student.whatsapp, msg);
                       }}
