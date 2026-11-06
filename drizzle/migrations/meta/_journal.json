@@ -8,6 +8,13 @@
       "when": 1791500841882,
       "tag": "0000_course_enrollment_and_material_discounts",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1793976464778,
+      "tag": "0001_deactivate_legacy_catalog_after_2026_import",
+      "breakpoints": true
     }
   ]
 }
