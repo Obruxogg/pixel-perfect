@@ -96,6 +96,77 @@ export const bootstrapProfile = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
+/**
+ * Utilitário de busca paginada para contornar o teto padrão de 1.000 registros (max-rows) do PostgREST.
+ * Mantém ordenação estável e realiza buscas subsequentes em lotes paralelos se o count exato estiver disponível,
+ * ou iterativamente em lotes sequenciais como salvaguarda robusta.
+ */
+export async function fetchAllPages<T = any>(
+  fetchPage: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: any; count?: number | null }>,
+  pageSize = 1000
+): Promise<{ data: T[]; error: any | null }> {
+  try {
+    const firstRes = await fetchPage(0, pageSize - 1);
+    if (firstRes.error) {
+      console.error("[fetchAllPages] Erro na primeira página:", firstRes.error);
+      return { data: firstRes.data ?? [], error: firstRes.error };
+    }
+
+    const firstData = firstRes.data ?? [];
+    if (firstData.length < pageSize) {
+      return { data: firstData, error: null };
+    }
+
+    const allRows: T[] = [...firstData];
+    const totalCount = firstRes.count;
+
+    if (typeof totalCount === "number" && totalCount > pageSize) {
+      const pageRanges: { from: number; to: number }[] = [];
+      for (let offset = pageSize; offset < totalCount; offset += pageSize) {
+        pageRanges.push({ from: offset, to: offset + pageSize - 1 });
+      }
+
+      const results = await Promise.all(
+        pageRanges.map(async ({ from, to }) => {
+          const res = await fetchPage(from, to);
+          if (res.error) {
+            console.error(`[fetchAllPages] Erro ao buscar intervalo ${from}-${to}:`, res.error);
+            throw res.error;
+          }
+          return res.data ?? [];
+        })
+      );
+
+      for (const pageRows of results) {
+        allRows.push(...pageRows);
+      }
+
+      return { data: allRows, error: null };
+    }
+
+    // Fallback: iteração sequencial caso o totalCount não tenha sido informado
+    let currentFrom = pageSize;
+    while (true) {
+      const currentTo = currentFrom + pageSize - 1;
+      const res = await fetchPage(currentFrom, currentTo);
+      if (res.error) {
+        console.error(`[fetchAllPages] Erro na busca sequencial ${currentFrom}-${currentTo}:`, res.error);
+        return { data: allRows, error: res.error };
+      }
+      const pageRows = res.data ?? [];
+      if (pageRows.length === 0) break;
+      allRows.push(...pageRows);
+      if (pageRows.length < pageSize) break;
+      currentFrom += pageSize;
+    }
+
+    return { data: allRows, error: null };
+  } catch (err: any) {
+    console.error("[fetchAllPages] Exceção inesperada na busca paginada:", err);
+    return { data: [], error: err };
+  }
+}
+
 export const getWorkspace = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
@@ -120,12 +191,48 @@ export const getWorkspace = createServerFn({ method: "GET" })
       db.from("profiles").select("*").eq("id", context.userId).maybeSingle(),
       db.from("user_roles").select("role").eq("user_id", context.userId),
       db.from("areas").select("*").order("sort_order"),
-      db.from("courses").select("*").order("sort_order"),
+      fetchAllPages((from, to) =>
+        db
+          .from("courses")
+          .select("*", { count: "exact" })
+          .order("sort_order", { ascending: true })
+          .order("id", { ascending: true })
+          .range(from, to)
+      ),
       db.from("payment_methods").select("*").order("sort_order"),
-      db.from("installment_options").select("*").order("sort_order"),
-      db.from("course_prices").select("*"),
-      db.from("discount_rules").select("*"),
-      db.from("commercial_conditions").select("*"),
+      fetchAllPages((from, to) =>
+        db
+          .from("installment_options")
+          .select("*", { count: "exact" })
+          .order("sort_order", { ascending: true })
+          .order("id", { ascending: true })
+          .range(from, to)
+      ),
+      fetchAllPages((from, to) =>
+        db
+          .from("course_prices")
+          .select("*", { count: "exact" })
+          .order("created_at", { ascending: true })
+          .order("id", { ascending: true })
+          .range(from, to)
+      ),
+      fetchAllPages((from, to) =>
+        db
+          .from("discount_rules")
+          .select("*", { count: "exact" })
+          .order("created_at", { ascending: true })
+          .order("id", { ascending: true })
+          .range(from, to)
+      ),
+      fetchAllPages((from, to) =>
+        db
+          .from("commercial_conditions")
+          .select("*", { count: "exact" })
+          .eq("status", "active")
+          .order("created_at", { ascending: true })
+          .order("id", { ascending: true })
+          .range(from, to)
+      ),
       db.from("crm_stages").select("*").order("sort_order"),
       db.from("profiles").select("*"),
       db.from("user_roles").select("*"),
