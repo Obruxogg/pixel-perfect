@@ -117,11 +117,11 @@ function CrmPage() {
   const { isSeller, isManager, isAdmin } = data;
 
   // Filter students based on role and seller filter
-  let visibleStudents = data.students;
+  let visibleStudents = data!.students;
   if (isSeller) {
-    visibleStudents = data.students.filter((s) => s.owner_id === data.userId || !s.owner_id);
+    visibleStudents = data!.students.filter((s) => s.owner_id === data.userId || !s.owner_id);
   } else if (selectedSellerFilter !== "all") {
-    visibleStudents = data.students.filter((s) => s.owner_id === selectedSellerFilter);
+    visibleStudents = data!.students.filter((s) => s.owner_id === selectedSellerFilter);
   }
 
   // Handle open student history
@@ -166,7 +166,7 @@ function CrmPage() {
   }
 
   // Open WhatsApp share for a proposal card
-  function handleWhatsAppShare(student: (typeof data.students)[number], proposal: (typeof data.proposals)[number] | undefined) {
+  function handleWhatsAppShare(student: NonNullable<typeof data>["students"][number], proposal: NonNullable<typeof data>["proposals"][number] | undefined) {
     if (!proposal) return;
     const count = Number((proposal as any).installments ?? (proposal as any).installment_count ?? 1);
     const subtotal = Number((proposal as any).subtotal_snapshot ?? proposal.original_price ?? 0);
@@ -202,8 +202,8 @@ function CrmPage() {
 
   // Open Enrollment Modal for a student + proposal
   function handleOpenEnrollment(
-    student: (typeof data.students)[number],
-    proposal?: (typeof data.proposals)[number],
+    student: NonNullable<typeof data>["students"][number],
+    proposal?: NonNullable<typeof data>["proposals"][number],
   ) {
     setEnrollmentTarget({
       student: {
@@ -224,14 +224,14 @@ function CrmPage() {
         original_price: Number(proposal?.original_price ?? 0),
         discount_amount: Number(proposal?.original_price ?? 0) - Number(proposal?.final_price ?? 0),
         final_price: Number(proposal?.final_price ?? 0),
-        seller_name: data.sellers.find((sel) => sel.id === student.owner_id)?.full_name,
+        seller_name: data!.sellers.find((sel) => sel.id === student.owner_id)?.full_name,
       },
     });
   }
 
-  const selectedStudent = data.students.find((s) => s.id === selectedStudentId);
+  const selectedStudent = data!.students.find((s) => s.id === selectedStudentId);
   const selectedStudentProposal = selectedStudent
-    ? data.proposals.find((p) => p.student_id === selectedStudent.id)
+    ? data!.proposals.find((p) => p.student_id === selectedStudent.id)
     : undefined;
 
   return (
@@ -249,10 +249,10 @@ function CrmPage() {
                 value={selectedSellerFilter}
                 onChange={(e) => setSelectedSellerFilter(e.target.value)}
               >
-                <option value="all">Toda a equipe ({data.students.length} contatos)</option>
-                {data.sellers.map((s) => (
+                <option value="all">Toda a equipe ({data!.students.length} contatos)</option>
+                {data!.sellers.map((s) => (
                   <option key={s.id} value={s.id}>
-                    {s.full_name} ({data.students.filter((st) => st.owner_id === s.id).length})
+                    {s.full_name} ({data!.students.filter((st) => st.owner_id === s.id).length})
                   </option>
                 ))}
               </select>
@@ -284,9 +284,9 @@ function CrmPage() {
 
               <div className="space-y-3">
                 {stageStudents.map((student) => {
-                  const proposal = data.proposals.find((p) => p.student_id === student.id);
+                  const proposal = data!.proposals.find((p) => p.student_id === student.id);
                   const followup = data.followups.find((f) => f.student_id === student.id && f.status === "pending");
-                  const seller = data.sellers.find((sel) => sel.id === student.owner_id);
+                  const seller = data!.sellers.find((sel) => sel.id === student.owner_id);
 
                   // Detect "won" stage to show "Efetivar Matrícula"
                   const stageName = (stage.name ?? "").toLowerCase();
@@ -641,7 +641,7 @@ function CrmPage() {
                   onChange={(e) => setTargetSellerId(e.target.value)}
                 >
                   <option value="">Sem responsável (Banco de Leads geral)</option>
-                  {data.sellers.map((s) => (
+                  {data!.sellers.map((s) => (
                     <option key={s.id} value={s.id}>
                       {s.full_name} ({s.job_title ?? "Vendedor"})
                     </option>
