@@ -207,7 +207,7 @@ export function ReportsPage() {
 
           <div className="flex flex-wrap items-center gap-1.5">
             <Button
-              size="xs"
+              size="sm"
               variant={periodPreset === "today" ? "default" : "outline"}
               onClick={() => applyPreset("today")}
               className="text-xs font-semibold"
@@ -215,7 +215,7 @@ export function ReportsPage() {
               Hoje
             </Button>
             <Button
-              size="xs"
+              size="sm"
               variant={periodPreset === "week" ? "default" : "outline"}
               onClick={() => applyPreset("week")}
               className="text-xs font-semibold"
@@ -223,7 +223,7 @@ export function ReportsPage() {
               Esta Semana
             </Button>
             <Button
-              size="xs"
+              size="sm"
               variant={periodPreset === "month" ? "default" : "outline"}
               onClick={() => applyPreset("month")}
               className="text-xs font-semibold"
@@ -231,7 +231,7 @@ export function ReportsPage() {
               Este Mês
             </Button>
             <Button
-              size="xs"
+              size="sm"
               variant={periodPreset === "custom" ? "default" : "outline"}
               onClick={() => setPeriodPreset("custom")}
               className="text-xs font-semibold"

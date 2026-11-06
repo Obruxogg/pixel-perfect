@@ -769,7 +769,7 @@ export const formalizeEnrollmentContract = createServerFn({ method: "POST" })
 
     const { error: studentUpdateErr } = await db
       .from("students")
-      .update(studentUpdatePayload)
+      .update(studentUpdatePayload as never)
       .eq("id", proposal.student_id);
 
     if (studentUpdateErr) {
