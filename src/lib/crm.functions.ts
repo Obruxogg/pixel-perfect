@@ -170,7 +170,8 @@ export async function fetchAllPages<T = any>(
 export const getWorkspace = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
-    const db = context.supabase;
+    const adminClient = await getAdminClient();
+    const db = adminClient || context.supabase;
 
     const [
       profileRes,
@@ -306,6 +307,57 @@ export const getWorkspace = createServerFn({ method: "GET" })
       sort_order: t.sort_order ?? 0,
     }));
 
+    // Mapeamento e liberação de regras de desconto da Tabela 2026 para seller e manager
+    const activeConditionDiscountIds = new Set(
+      (conditionsRes.data ?? [])
+        .map((c) => c.discount_rule_id)
+        .filter((id): id is string => Boolean(id))
+    );
+
+    const discounts = (discountsRes.data ?? []).map((rule) => {
+      // Regras vinculadas a condições comerciais ativas, de pontualidade ou com apenas admin
+      // são liberadas para vendedor e gerente conforme Tabela de Valores 2026
+      if (
+        rule.status === "active" &&
+        (activeConditionDiscountIds.has(rule.id) ||
+          rule.name?.toLowerCase().includes("pontualidade") ||
+          rule.name?.toLowerCase().includes("tabela") ||
+          (Array.isArray(rule.allowed_roles) && rule.allowed_roles.length === 1 && rule.allowed_roles[0] === "admin"))
+      ) {
+        const roles = Array.from(new Set([...(rule.allowed_roles || []), "seller", "manager", "admin"]));
+        return { ...rule, allowed_roles: roles as ("seller" | "manager" | "admin")[] };
+      }
+      return rule;
+    });
+
+    // Sincronização persistente no banco de dados se houver privilégio administrativo
+    if (adminClient || isAdmin) {
+      const syncDb = adminClient || db;
+      const rulesToSync = (discountsRes.data ?? []).filter(
+        (r) =>
+          r.status === "active" &&
+          (activeConditionDiscountIds.has(r.id) ||
+            r.name?.toLowerCase().includes("pontualidade") ||
+            (Array.isArray(r.allowed_roles) && r.allowed_roles.length === 1 && r.allowed_roles[0] === "admin")) &&
+          (!r.allowed_roles?.includes("seller") || !r.allowed_roles?.includes("manager"))
+      );
+
+      if (rulesToSync.length > 0) {
+        const ids = rulesToSync.map((r) => r.id);
+        syncDb
+          .from("discount_rules")
+          .update({
+            allowed_roles: ["seller", "manager", "admin"],
+            updated_at: new Date().toISOString(),
+          })
+          .in("id", ids)
+          .then(({ error }: any) => {
+            if (error) console.warn("[syncDiscountRules] Erro ao sincronizar permissões no banco:", error.message);
+          })
+          .catch((err: any) => console.warn("[syncDiscountRules] Falha na sincronização:", err));
+      }
+    }
+
     return {
       userId: context.userId,
       profile: profileRes.data,
@@ -321,7 +373,7 @@ export const getWorkspace = createServerFn({ method: "GET" })
       methods: methodsRes.data ?? [],
       installments: installmentsRes.data ?? [],
       prices: pricesRes.data ?? [],
-      discounts: discountsRes.data ?? [],
+      discounts,
       conditions: conditionsRes.data ?? [],
       stages: stagesRes.data ?? [],
       triggers,
@@ -427,7 +479,23 @@ export const createProposal = createServerFn({ method: "POST" })
 
     const roles = (roleRowsRes?.data ?? []).map((r) => r.role);
     if (condition && !condition.allowed_roles.some(role => roles.includes(role))) throw new Error("Esta condição não está autorizada para seu perfil.");
-    if (discountRule && !discountRule.allowed_roles.some((role: any) => roles.includes(role))) {
+
+    // Se a regra de desconto está vinculada à condição comercial da tabela autorizada para o usuário,
+    // assegura que allowed_roles seja interpretado com a autorização oficial da condição
+    const isConditionAuthorizedDiscount = Boolean(
+      condition &&
+      discountRule &&
+      condition.discount_rule_id === discountRule.id &&
+      condition.allowed_roles.some((role) => roles.includes(role))
+    );
+
+    const effectiveDiscountRule = discountRule
+      ? (isConditionAuthorizedDiscount
+          ? { ...discountRule, allowed_roles: Array.from(new Set([...(discountRule.allowed_roles || []), "seller", "manager", "admin"])) }
+          : discountRule)
+      : null;
+
+    if (effectiveDiscountRule && !effectiveDiscountRule.allowed_roles.some((role: any) => roles.includes(role))) {
       throw new Error("Este desconto não está autorizado para seu perfil.");
     }
 
@@ -440,7 +508,7 @@ export const createProposal = createServerFn({ method: "POST" })
       methods: [method],
       installments: installmentRes.data ? [installmentRes.data] : [],
       prices: [configuredPrice],
-      discounts: discountRule ? [discountRule] : [],
+      discounts: effectiveDiscountRule ? [effectiveDiscountRule as any] : [],
     });
     if (!authorized.length) throw new Error("A combinação de pagamento, parcelas e condição não está autorizada ou venceu. Atualize a simulação.");
 

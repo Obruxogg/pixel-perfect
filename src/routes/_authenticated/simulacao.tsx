@@ -132,6 +132,9 @@ function SimulationPage() {
     prices: data?.prices ?? [],
     discounts: data?.discounts ?? [],
   });
+  const hasCatalogConditionsForCourse = Boolean(
+    courseId && data?.conditions?.some((c) => c.course_id === courseId && c.status === "active")
+  );
   const availableMethods = (data?.methods ?? []).filter(method => courseConditions.some(condition => condition.payment_method_id === method.id));
   const availableInstallments = (data?.installments ?? []).filter(installment => installment.payment_method_id === paymentMethodId && courseConditions.some(condition => condition.payment_method_id === paymentMethodId && condition.installment_option_id === installment.id)).sort((a, b) => a.installments - b.installments);
   const cashAvailable = courseConditions.some(condition => condition.payment_method_id === paymentMethodId && condition.installment_option_id === null);
@@ -770,9 +773,11 @@ function SimulationPage() {
 
             {courseConditions.length === 0 ? (
               <div className="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
-                {courseId
-                  ? "Nenhuma condição comercial cadastrada para este curso. Solicite ao administrador."
-                  : "Selecione um curso para ver as condições disponíveis."}
+                {!courseId
+                  ? "Selecione um curso para ver as condições disponíveis."
+                  : hasCatalogConditionsForCourse
+                  ? "As condições comerciais deste curso exigem liberação da gerência ou administração."
+                  : "Nenhuma condição comercial cadastrada para este curso. Solicite ao administrador."}
               </div>
             ) : (
               <div className="space-y-4">
